@@ -1,4 +1,4 @@
-# Quill
+# LearnWithMe
 
 **Tests, built for teachers.** A K-12 Canadian curriculum test generator: teachers describe a test in plain English, students practise on it before exam day, everyone leaves with a clean PDF.
 
@@ -27,8 +27,8 @@ The AI layer speaks the OpenAI-compatible chat-completions shape. Switch provide
 ## Local setup
 
 ```bash
-git clone <your-fork>
-cd quill
+git clone https://github.com/Minht30/LearnWithME.git
+cd LearnWithME
 npm install
 cp .env.example .env.local   # fill in Supabase + Groq keys
 npm run dev

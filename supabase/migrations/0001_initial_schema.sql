@@ -1,5 +1,5 @@
 -- ============================================================================
--- Quill · initial schema (9 tables + RLS)
+-- LearnWithMe · initial schema (9 tables + RLS)
 -- Run this in the Supabase SQL editor after creating the project.
 -- ============================================================================
 

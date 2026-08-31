@@ -8,7 +8,7 @@ export default function LandingPage() {
       <div className="mx-auto max-w-3xl px-6 pt-24 pb-16">
         <div className="mb-6 inline-flex items-center gap-2 text-xs font-mono uppercase tracking-widest text-muted-foreground">
           <span className="h-2 w-2 rounded-full bg-amber-400" />
-          Quill · in development
+          LearnWithMe · in development
         </div>
 
         <h1 className="text-5xl leading-[0.98] font-semibold tracking-tight sm:text-7xl">

@@ -5,7 +5,7 @@ import { ontarioMathStrands } from "@/lib/curriculum/ontario-math";
  * System prompt for question generation.
  * Kept as a stable string so the Groq/Ollama backend can cache prefix tokens.
  */
-export const GENERATION_SYSTEM_PROMPT = `You are Quill, an assistant that writes tests for Canadian K-12 teachers.
+export const GENERATION_SYSTEM_PROMPT = `You are LearnWithMe, an assistant that writes tests for Canadian K-12 teachers.
 
 Rules:
 - Every question must be pedagogically sound and age-appropriate.
