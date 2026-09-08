@@ -39,7 +39,7 @@ export default async function ResultPage({ params }: PageProps<"/result/[attempt
   const { attemptId } = await params;
   const data = await loadResult(attemptId);
   if (!data) return notFound();
-  const { test, questions, answers, student } = data;
+  const { questions, answers, student } = data;
 
   const answerMap = new Map(answers.map((a) => [a.question_id, a]));
   const gradedTotal = questions.length;

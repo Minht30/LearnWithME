@@ -25,10 +25,7 @@ type Props = {
   initialNotes: Record<string, string>;
 };
 
-// --- Timer ring sound (bundled tiny beep as data URI, no external file) ------
-const RING_URL =
-  "data:audio/wav;base64,UklGRoQFAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YWAFAAB/f39/f39/f39/f4CAgICAgICAgICAgH9/f39/f39/f38=";
-
+// --- Timer ring: synthesized in-browser via WebAudio, no asset needed --------
 function playRing(enabled: boolean) {
   if (!enabled) return;
   try {
