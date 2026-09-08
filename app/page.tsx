@@ -22,8 +22,8 @@ export default function LandingPage() {
         </p>
 
         <div className="mt-10 flex flex-wrap gap-3">
-          <Link href="/signup" className={cn(buttonVariants({ size: "lg" }))}>
-            I&apos;m a teacher — get started
+          <Link href="/dashboard" className={cn(buttonVariants({ size: "lg" }))}>
+            I&apos;m a teacher — open dashboard
           </Link>
           <Link
             href="/join"
