@@ -5,7 +5,7 @@ export const dynamic = "force-dynamic";
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { Card } from "@/components/ui/card";
-import { FileText, Plus, Clock } from "lucide-react";
+import { FileText, Plus, Pencil, Clock } from "lucide-react";
 import type { DbTest } from "@/lib/db/types";
 
 async function loadTests(): Promise<DbTest[]> {
@@ -33,9 +33,17 @@ export default async function DashboardPage() {
               : `${tests.length} test${tests.length === 1 ? "" : "s"} on file.`}
           </p>
         </div>
-        <Link href="/dashboard/new" className={cn(buttonVariants({ size: "lg" }))}>
-          <Plus className="mr-1 h-4 w-4" /> New test
-        </Link>
+        <div className="flex gap-2">
+          <Link
+            href="/dashboard/new/manual"
+            className={cn(buttonVariants({ size: "lg", variant: "outline" }))}
+          >
+            <Pencil className="mr-1 h-4 w-4" /> Build manually
+          </Link>
+          <Link href="/dashboard/new" className={cn(buttonVariants({ size: "lg" }))}>
+            <Plus className="mr-1 h-4 w-4" /> New test
+          </Link>
+        </div>
       </header>
 
       {tests.length === 0 ? (

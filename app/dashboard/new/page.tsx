@@ -2,6 +2,7 @@
 
 import { useState, useTransition, useRef } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { generateTest } from "@/app/actions/generate-test";
 import { extractDocumentText } from "@/app/actions/extract-doc";
 import { Card } from "@/components/ui/card";
@@ -10,7 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
-import { Sparkles, Loader2, Paperclip, X } from "lucide-react";
+import { Sparkles, Loader2, Paperclip, X, Pencil } from "lucide-react";
 import type { QuestionType } from "@/lib/schemas/question";
 
 const SUBJECTS = [
@@ -100,11 +101,19 @@ export default function NewTestPage() {
 
   return (
     <div className="max-w-2xl">
-      <header className="mb-8">
-        <h1 className="text-3xl font-semibold tracking-tight">New test</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Describe what you want and we&apos;ll generate the questions.
-        </p>
+      <header className="mb-8 flex items-start justify-between gap-4 flex-wrap">
+        <div>
+          <h1 className="text-3xl font-semibold tracking-tight">New test</h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Describe what you want and we&apos;ll generate the questions.
+          </p>
+        </div>
+        <Link
+          href="/dashboard/new/manual"
+          className="inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm text-muted-foreground hover:border-foreground/40 hover:text-foreground"
+        >
+          <Pencil className="h-3.5 w-3.5" /> Or build it manually
+        </Link>
       </header>
 
       <Card className="p-6 space-y-6">

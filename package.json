@@ -9,7 +9,6 @@
     "lint": "eslint"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.124.0",
     "@base-ui/react": "^1.7.0",
     "@hookform/resolvers": "^5.9.1",
     "@react-pdf/renderer": "^4.9.0",
