@@ -16,7 +16,7 @@ const schema = z.object({
   AI_PROVIDER: blankAsUndefined(z.enum(["groq", "ollama"]).default("groq")),
 
   GROQ_API_KEY: blankAsUndefined(z.string().default("")),
-  GROQ_MODEL_LARGE: blankAsUndefined(z.string().default("qwen/qwen3.8-27b")),
+  GROQ_MODEL_LARGE: blankAsUndefined(z.string().default("openai/gpt-oss-120b")),
   GROQ_MODEL_SMALL: blankAsUndefined(z.string().default("openai/gpt-oss-20b")),
 
   OLLAMA_BASE_URL: blankAsUndefined(z.string().default("http://127.0.0.1:11434/v1")),

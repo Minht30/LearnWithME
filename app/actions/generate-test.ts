@@ -21,6 +21,10 @@ export async function generateTest(
   }
   const req = parsed.data;
 
+  // Budget ~280 output tokens per question, clamped to a safe range for the
+  // free tier. Bigger tests → bigger budget, up to ~8K.
+  const maxTokens = Math.min(8000, Math.max(1200, req.count * 280));
+
   let raw: unknown;
   try {
     raw = await generateJson(
@@ -28,16 +32,25 @@ export async function generateTest(
         { role: "system", content: GENERATION_SYSTEM_PROMPT },
         { role: "user", content: buildUserPrompt(req, sourceExcerpt) },
       ],
-      { size: "large", temperature: 0.5, maxTokens: 6000 }
+      { size: "large", temperature: 0.5, maxTokens }
     );
   } catch (e) {
-    return {
-      ok: false,
-      error:
-        e instanceof Error
-          ? `AI generation failed: ${e.message}`
-          : "AI generation failed.",
-    };
+    const msg = e instanceof Error ? e.message : String(e);
+    if (/rate_limit|429|too many|OTPM|TPM/i.test(msg)) {
+      return {
+        ok: false,
+        error:
+          "The free-tier AI limit was reached for this minute. Wait ~60 seconds and try again, or ask for fewer questions.",
+      };
+    }
+    if (/model_not_found|does not exist/i.test(msg)) {
+      return {
+        ok: false,
+        error:
+          "The AI model has been deprecated by Groq. Check GROQ_MODEL_LARGE in your env.",
+      };
+    }
+    return { ok: false, error: `AI generation failed: ${msg}` };
   }
 
   const validated = GeneratedTest.safeParse(raw);
