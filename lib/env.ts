@@ -13,7 +13,7 @@ const schema = z.object({
   NEXT_PUBLIC_SUPABASE_ANON_KEY: blankAsUndefined(z.string().default("")),
   SUPABASE_SERVICE_ROLE_KEY: blankAsUndefined(z.string().default("")),
 
-  AI_PROVIDER: blankAsUndefined(z.enum(["groq", "ollama"]).default("groq")),
+  AI_PROVIDER: blankAsUndefined(z.enum(["groq", "ollama", "claude"]).default("groq")),
 
   GROQ_API_KEY: blankAsUndefined(z.string().default("")),
   GROQ_MODEL_LARGE: blankAsUndefined(z.string().default("openai/gpt-oss-120b")),
@@ -22,6 +22,10 @@ const schema = z.object({
   OLLAMA_BASE_URL: blankAsUndefined(z.string().default("http://127.0.0.1:11434/v1")),
   OLLAMA_MODEL_LARGE: blankAsUndefined(z.string().default("llama3.2:latest")),
   OLLAMA_MODEL_SMALL: blankAsUndefined(z.string().default("llama3.2:latest")),
+
+  ANTHROPIC_API_KEY: blankAsUndefined(z.string().default("")),
+  CLAUDE_MODEL_LARGE: blankAsUndefined(z.string().default("claude-opus-5")),
+  CLAUDE_MODEL_SMALL: blankAsUndefined(z.string().default("claude-opus-5")),
 
   NEXT_PUBLIC_APP_URL: blankAsUndefined(z.string().default("http://localhost:3000")),
 });
@@ -37,6 +41,9 @@ export const env = schema.parse({
   OLLAMA_BASE_URL: process.env.OLLAMA_BASE_URL,
   OLLAMA_MODEL_LARGE: process.env.OLLAMA_MODEL_LARGE,
   OLLAMA_MODEL_SMALL: process.env.OLLAMA_MODEL_SMALL,
+  ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,
+  CLAUDE_MODEL_LARGE: process.env.CLAUDE_MODEL_LARGE,
+  CLAUDE_MODEL_SMALL: process.env.CLAUDE_MODEL_SMALL,
   NEXT_PUBLIC_APP_URL: process.env.NEXT_PUBLIC_APP_URL,
 });
 
