@@ -14,8 +14,8 @@ Built on free tiers and open-weight models — no paid dependency in the stack.
 | Language         | TypeScript, strict                     | Apache 2.0                                     |
 | UI               | Tailwind v4 + shadcn/ui                | MIT                                            |
 | Database         | Supabase (Postgres + Auth + Storage)   | Apache 2.0 · free tier                         |
-| AI (production)  | Groq · `llama-3.3-70b-versatile`       | Meta community licence · free API              |
-| AI (grading)     | Groq · `llama-3.1-8b-instant`          | Meta community licence · free API              |
+| AI (production)  | Groq · `qwen/qwen3.8-27b`              | Apache 2.0 · free API                          |
+| AI (grading)     | Groq · `openai/gpt-oss-20b`            | Apache 2.0 · free API                          |
 | AI (local dev)   | Ollama · `llama3.2:latest`             | Apache 2.0 · fully local                       |
 | PDF export       | `@react-pdf/renderer`                  | MIT                                            |
 | Doc parsing      | `unpdf`, `mammoth`                     | MIT / BSD                                      |

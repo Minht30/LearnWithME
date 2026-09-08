@@ -53,7 +53,7 @@ export default function LandingPage() {
           <Feature
             icon={<Sparkles className="h-4 w-4 text-amber-500" />}
             title="Prompt-to-test"
-            body="Type what you want in plain English. Llama 3.3 generates 100 curriculum-aligned questions in seconds."
+            body="Type what you want in plain English. An open-weight model generates 100 curriculum-aligned questions in seconds."
           />
           <Feature
             icon={<FileDown className="h-4 w-4 text-amber-500" />}

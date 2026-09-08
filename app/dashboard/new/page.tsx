@@ -253,7 +253,7 @@ export default function NewTestPage() {
 
         <div className="flex items-center justify-between border-t pt-5">
           <p className="text-xs text-muted-foreground">
-            Uses Groq · Llama 3.3 70B · ~10-20s
+            Uses Groq · Qwen 3.8 · ~10-20s
           </p>
           <Button onClick={onSubmit} disabled={pending} size="lg">
             {pending ? (
