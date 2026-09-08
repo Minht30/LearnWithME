@@ -1,21 +1,29 @@
 import { z } from "zod";
 
+/**
+ * Treat empty strings the same as undefined so a missing env var and an env
+ * var explicitly set to "" both fall back to `.default(...)`. Vercel's "detect
+ * env vars from .env.example" often creates empty-string entries.
+ */
+const blankAsUndefined = <T extends z.ZodTypeAny>(schema: T) =>
+  z.preprocess((v) => (v === "" ? undefined : v), schema);
+
 const schema = z.object({
-  NEXT_PUBLIC_SUPABASE_URL: z.string().url().optional().default(""),
-  NEXT_PUBLIC_SUPABASE_ANON_KEY: z.string().optional().default(""),
-  SUPABASE_SERVICE_ROLE_KEY: z.string().optional().default(""),
+  NEXT_PUBLIC_SUPABASE_URL: blankAsUndefined(z.string().default("")),
+  NEXT_PUBLIC_SUPABASE_ANON_KEY: blankAsUndefined(z.string().default("")),
+  SUPABASE_SERVICE_ROLE_KEY: blankAsUndefined(z.string().default("")),
 
-  AI_PROVIDER: z.enum(["groq", "ollama"]).default("groq"),
+  AI_PROVIDER: blankAsUndefined(z.enum(["groq", "ollama"]).default("groq")),
 
-  GROQ_API_KEY: z.string().optional().default(""),
-  GROQ_MODEL_LARGE: z.string().default("llama-3.3-70b-versatile"),
-  GROQ_MODEL_SMALL: z.string().default("llama-3.1-8b-instant"),
+  GROQ_API_KEY: blankAsUndefined(z.string().default("")),
+  GROQ_MODEL_LARGE: blankAsUndefined(z.string().default("llama-3.3-70b-versatile")),
+  GROQ_MODEL_SMALL: blankAsUndefined(z.string().default("llama-3.1-8b-instant")),
 
-  OLLAMA_BASE_URL: z.string().default("http://127.0.0.1:11434/v1"),
-  OLLAMA_MODEL_LARGE: z.string().default("llama3.2:latest"),
-  OLLAMA_MODEL_SMALL: z.string().default("llama3.2:latest"),
+  OLLAMA_BASE_URL: blankAsUndefined(z.string().default("http://127.0.0.1:11434/v1")),
+  OLLAMA_MODEL_LARGE: blankAsUndefined(z.string().default("llama3.2:latest")),
+  OLLAMA_MODEL_SMALL: blankAsUndefined(z.string().default("llama3.2:latest")),
 
-  NEXT_PUBLIC_APP_URL: z.string().default("http://localhost:3000"),
+  NEXT_PUBLIC_APP_URL: blankAsUndefined(z.string().default("http://localhost:3000")),
 });
 
 export const env = schema.parse({
