@@ -6,14 +6,24 @@ export type QuestionType = z.infer<typeof QuestionType>;
 export const Difficulty = z.enum(["easy", "medium", "hard"]);
 export type Difficulty = z.infer<typeof Difficulty>;
 
+/**
+ * Optional field that also tolerates explicit `null` from the LLM.
+ * `.optional()` alone only allows `undefined`; models often send `null`.
+ */
+const nullish = <T extends z.ZodType>(schema: T) =>
+  schema.nullable().optional().transform((v) => (v == null ? undefined : v));
+
 export const Question = z.object({
   type: QuestionType,
   prompt: z.string().min(1),
-  choices: z.array(z.string()).optional(),
-  correct: z.union([z.string(), z.number(), z.array(z.string())]),
-  rubric: z.string().optional(),
+  choices: nullish(z.array(z.string())),
+  correct: z
+    .union([z.string(), z.number(), z.array(z.string())])
+    .nullable()
+    .transform((v) => (v == null ? "" : v)),
+  rubric: nullish(z.string()),
   difficulty: Difficulty.default("medium"),
-  strand: z.string().optional(),
+  strand: nullish(z.string()),
 });
 export type Question = z.infer<typeof Question>;
 
