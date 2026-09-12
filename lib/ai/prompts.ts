@@ -1,5 +1,5 @@
 import type { TestRequest } from "@/lib/schemas/question";
-import { ontarioMathStrands } from "@/lib/curriculum/ontario-math";
+import { ontarioMath } from "@/lib/curriculum/ontario-math";
 
 /**
  * System prompt for question generation.
@@ -36,10 +36,8 @@ Output schema:
 }`;
 
 export function buildUserPrompt(req: TestRequest, sourceExcerpt?: string): string {
-  const strands =
-    req.subject.toLowerCase().includes("math") && req.grade in ontarioMathStrands
-      ? ontarioMathStrands[req.grade as keyof typeof ontarioMathStrands]
-      : null;
+  const gradeEntry =
+    req.subject.toLowerCase().includes("math") ? ontarioMath.grade(req.grade) : null;
 
   const lines: string[] = [];
   lines.push(`Please generate a test with the following parameters:`);
@@ -49,9 +47,11 @@ export function buildUserPrompt(req: TestRequest, sourceExcerpt?: string): strin
   lines.push(`- Duration: ${req.duration_min} minutes`);
   lines.push(`- Question types allowed: ${req.types.join(", ")}`);
   if (req.curriculum_ref) lines.push(`- Curriculum reference: ${req.curriculum_ref}`);
-  if (strands) {
+  if (gradeEntry) {
     lines.push(`- Ontario Math strands for this grade:`);
-    for (const s of strands) lines.push(`  · ${s}`);
+    for (const s of gradeEntry.strands) lines.push(`  · ${s}`);
+    lines.push(`- Specific grade-${req.grade} skills you may target (pick what matches the description):`);
+    for (const s of gradeEntry.skills) lines.push(`  · ${s}`);
   }
   lines.push("");
   lines.push(`Teacher's description:`);

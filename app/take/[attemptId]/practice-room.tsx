@@ -5,16 +5,23 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
+import { Card } from "@/components/ui/card";
 import { toast } from "sonner";
 import { saveAnswer, submitAttempt } from "@/app/actions/student-actions";
+import { playChime, playCorrect, playIncorrect } from "@/lib/sounds";
 import type { DbAttempt, DbQuestion, DbTest } from "@/lib/db/types";
 import {
-  ChevronLeft,
-  ChevronRight,
   StickyNote,
   Send,
   Volume2,
   VolumeX,
+  Play,
+  Check,
+  Sparkles,
+  BookOpen,
+  Clock,
+  ListChecks,
+  Info,
 } from "lucide-react";
 
 type Props = {
@@ -25,28 +32,57 @@ type Props = {
   initialNotes: Record<string, string>;
 };
 
-// --- Timer ring: synthesized in-browser via WebAudio, no asset needed --------
-function playRing(enabled: boolean) {
-  if (!enabled) return;
-  try {
-    const ctx = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
-    const o = ctx.createOscillator();
-    const g = ctx.createGain();
-    o.type = "sine";
-    o.frequency.value = 880;
-    g.gain.value = 0.15;
-    o.connect(g).connect(ctx.destination);
-    o.start();
-    setTimeout(() => {
-      o.frequency.value = 660;
-    }, 180);
-    setTimeout(() => {
-      o.stop();
-      ctx.close();
-    }, 420);
-  } catch {
-    /* audio unavailable */
+type LocalGrade = {
+  isCorrect: boolean;
+  correctAnswer: string;
+  feedback: string;
+  awaitingTeacher?: boolean;
+};
+
+type Phase = "briefing" | "answering" | "submitting";
+
+const ENCOURAGEMENTS = ["Nice work!", "You got it!", "Right on!", "Great job!", "Yes!", "That's it!", "Perfect!"];
+
+function stableEncouragement(seed: string): string {
+  let h = 0;
+  for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) | 0;
+  return ENCOURAGEMENTS[Math.abs(h) % ENCOURAGEMENTS.length];
+}
+
+function normalizeCorrect(v: unknown): string {
+  if (Array.isArray(v)) return v.join(", ");
+  return String(v);
+}
+
+function gradeLocally(q: DbQuestion, response: string): LocalGrade {
+  const trimmed = (response ?? "").trim();
+  const correctAnswer = normalizeCorrect(q.correct);
+
+  if (q.type === "mcq") {
+    const ok = trimmed.toLowerCase() === correctAnswer.toLowerCase();
+    return {
+      isCorrect: ok,
+      correctAnswer,
+      feedback: ok ? stableEncouragement(q.id) : "Not quite — here's the right answer.",
+    };
   }
+  if (q.type === "numeric") {
+    const a = parseFloat(trimmed);
+    const b = parseFloat(correctAnswer);
+    const ok = Number.isFinite(a) && Number.isFinite(b) && Math.abs(a - b) < 1e-6;
+    return {
+      isCorrect: ok,
+      correctAnswer,
+      feedback: ok ? stableEncouragement(q.id) : "Close! Let's look at this one.",
+    };
+  }
+  // short / long: don't grade locally — teacher will (or the server will use the small model on submit)
+  return {
+    isCorrect: false,
+    correctAnswer,
+    feedback: "Saved. Your teacher will review this one.",
+    awaitingTeacher: true,
+  };
 }
 
 export function PracticeRoom({
@@ -56,53 +92,79 @@ export function PracticeRoom({
   initialResponses,
   initialNotes,
 }: Props) {
+  const [phase, setPhase] = useState<Phase>("briefing");
   const [idx, setIdx] = useState(0);
   const [responses, setResponses] = useState(initialResponses);
   const [notes, setNotes] = useState(initialNotes);
+  const [checked, setChecked] = useState<Record<string, LocalGrade>>({});
   const [showNotes, setShowNotes] = useState(false);
   const [soundOn, setSoundOn] = useState(true);
   const [pending, startTransition] = useTransition();
 
+  // Load persisted sound setting once
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem("lwm.sound");
+      if (stored === "0") {
+        // eslint-disable-next-line react-hooks/set-state-in-effect
+        setSoundOn(false);
+      }
+    } catch { /* private mode */ }
+  }, []);
+  function toggleSound() {
+    setSoundOn((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem("lwm.sound", next ? "1" : "0");
+      } catch { /* ignore */ }
+      return next;
+    });
+  }
+
   const total = questions.length;
   const q = questions[idx];
-  const responded = Object.keys(responses).filter((k) => responses[k]?.trim()).length;
+  const isChecked = q ? !!checked[q.id] : false;
+  const answeredCount = Object.keys(checked).length;
+  const correctCount = Object.values(checked).filter((g) => g.isCorrect).length;
 
-  // --- Timer -----------------------------------------------------------------
-  const startedMs = new Date(attempt.started_at).getTime();
-  const totalMs = test.duration_min * 60_000;
+  // --- Timer (only ticks in "answering" phase) --------------------------------
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
+    if (phase !== "answering") return;
     const t = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(t);
-  }, []);
-  const elapsed = Math.max(0, now - startedMs);
+  }, [phase]);
+
+  const startedMs = new Date(attempt.started_at).getTime();
+  const totalMs = test.duration_min * 60_000;
+  const elapsed = phase === "answering" ? Math.max(0, now - startedMs) : 0;
   const remaining = Math.max(0, totalMs - elapsed);
   const remMin = Math.floor(remaining / 60_000);
   const remSec = Math.floor((remaining % 60_000) / 1000);
 
-  // Bells at start, 1 min left, and end.
   const rangStartRef = useRef(false);
   const rangOneMinRef = useRef(false);
   const rangEndRef = useRef(false);
   useEffect(() => {
-    if (!rangStartRef.current && elapsed >= 0 && elapsed < 3000) {
+    if (phase !== "answering") return;
+    if (!rangStartRef.current) {
       rangStartRef.current = true;
-      playRing(soundOn);
+      playChime(soundOn);
     }
     if (!rangOneMinRef.current && remaining > 0 && remaining <= 61_000) {
       rangOneMinRef.current = true;
-      playRing(soundOn);
+      playChime(soundOn);
       toast.info("One minute left.");
     }
     if (!rangEndRef.current && remaining <= 0 && totalMs > 0) {
       rangEndRef.current = true;
-      playRing(soundOn);
-      toast.info("Time's up — please submit.");
+      playChime(soundOn);
+      toast.info("Time's up — submit when you're ready.");
     }
-  }, [remaining, elapsed, soundOn, totalMs]);
+  }, [phase, remaining, totalMs, soundOn]);
 
-  // --- Debounced autosave ----------------------------------------------------
-  const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  // --- Debounced autosave -----------------------------------------------------
+  const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const scheduleSave = useCallback(
     (questionId: string, response: string, note: string | null) => {
       if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
@@ -122,30 +184,138 @@ export function PracticeRoom({
     scheduleSave(qid, responses[qid] ?? "", val);
   }
 
-  function onSubmit() {
-    if (
-      responded < total &&
-      !confirm(
-        `You've answered ${responded} of ${total} questions. Submit anyway?`
-      )
-    )
+  function onCheck() {
+    if (!q) return;
+    const response = responses[q.id] ?? "";
+    if (!response.trim()) {
+      toast.error("Type an answer first.");
       return;
-    // Flush pending save
+    }
+    // Flush pending autosave immediately
     if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+    saveAnswer(attempt.id, q.id, response, notes[q.id] ?? null);
+
+    const grade = gradeLocally(q, response);
+    setChecked((prev) => ({ ...prev, [q.id]: grade }));
+    if (grade.awaitingTeacher) {
+      // neutral acknowledgement, no sound
+    } else if (grade.isCorrect) {
+      playCorrect(soundOn);
+    } else {
+      playIncorrect(soundOn);
+    }
+  }
+
+  function onNext() {
+    if (idx < total - 1) {
+      setIdx((i) => i + 1);
+    } else {
+      onSubmit();
+    }
+  }
+
+  function onSubmit() {
+    if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+    setPhase("submitting");
     startTransition(async () => {
       try {
         await submitAttempt(attempt.id);
       } catch (e) {
         if (e instanceof Error && e.message.includes("NEXT_REDIRECT")) return;
         toast.error("Could not submit. Try again.");
+        setPhase("answering");
       }
     });
   }
 
+  // -------- BRIEFING SCREEN ---------------------------------------------------
+  if (phase === "briefing") {
+    return (
+      <div className="min-h-screen bg-amber-50/40 dark:bg-neutral-950 flex items-center justify-center p-4">
+        <Card className="w-full max-w-lg p-8 sm:p-10">
+          <div className="mb-2 inline-flex items-center gap-1.5 rounded-full bg-amber-100 px-2.5 py-1 text-xs font-medium text-amber-800 dark:bg-amber-950 dark:text-amber-300">
+            <Sparkles className="h-3 w-3" /> Practice time
+          </div>
+          <h1 className="mt-2 text-3xl font-bold tracking-tight sm:text-4xl">
+            {test.title}
+          </h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {test.subject} · Grade {test.grade}
+          </p>
+
+          <div className="mt-6 grid grid-cols-2 gap-3">
+            <StatChip icon={<ListChecks className="h-4 w-4" />} label="Questions" value={String(total)} />
+            <StatChip icon={<Clock className="h-4 w-4" />} label="Time limit" value={`${test.duration_min} min`} />
+          </div>
+
+          <div className="mt-6 space-y-3">
+            <SectionHeading>How this works</SectionHeading>
+            <Tip icon={<BookOpen className="h-4 w-4" />}>
+              Read each question, type your answer, then tap <b>Check answer</b>.
+            </Tip>
+            <Tip icon={<Check className="h-4 w-4" />}>
+              You&apos;ll see right away if you got it. If not, we&apos;ll show you the right answer.
+            </Tip>
+            <Tip icon={<StickyNote className="h-4 w-4" />}>
+              Need to think? Open the <b>Notes</b> pad — nobody sees your scratch work.
+            </Tip>
+            <Tip icon={<Clock className="h-4 w-4" />}>
+              A friendly chime plays when time is running low.
+            </Tip>
+          </div>
+
+          <div className="mt-6 flex items-center justify-between rounded-lg border bg-muted/40 p-3 text-sm">
+            <div className="flex items-center gap-2">
+              {soundOn ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}
+              <span>Sound {soundOn ? "on" : "off"}</span>
+            </div>
+            <button
+              onClick={toggleSound}
+              className="rounded px-2 py-1 text-xs font-medium text-muted-foreground hover:bg-muted hover:text-foreground"
+            >
+              {soundOn ? "Turn off" : "Turn on"}
+            </button>
+          </div>
+
+          <Button
+            onClick={() => setPhase("answering")}
+            size="lg"
+            className="mt-8 w-full h-14 text-base"
+          >
+            <Play className="mr-2 h-5 w-5" />
+            Start practising
+          </Button>
+        </Card>
+      </div>
+    );
+  }
+
+  // -------- SUBMITTING (brief loading gate) -----------------------------------
+  if (phase === "submitting") {
+    return (
+      <div className="min-h-screen bg-amber-50/40 flex items-center justify-center p-6 dark:bg-neutral-950">
+        <div className="text-center">
+          <motion.div
+            initial={{ scale: 0.9, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            className="mx-auto mb-4 h-12 w-12 rounded-full bg-amber-100 flex items-center justify-center"
+          >
+            <Sparkles className="h-6 w-6 text-amber-600" />
+          </motion.div>
+          <p className="text-lg font-medium">Adding up your score…</p>
+          <p className="mt-1 text-sm text-muted-foreground">Just a moment</p>
+        </div>
+      </div>
+    );
+  }
+
+  // -------- ANSWERING ---------------------------------------------------------
+  const grade = q ? checked[q.id] : undefined;
+  const percentDone = (answeredCount / total) * 100;
+
   return (
     <div className="min-h-screen bg-amber-50/40 dark:bg-neutral-950">
-      {/* Top bar */}
-      <header className="sticky top-0 z-10 border-b bg-background/80 backdrop-blur">
+      <header className="sticky top-0 z-10 border-b bg-background/85 backdrop-blur">
         <div className="mx-auto flex max-w-4xl items-center justify-between gap-3 px-4 py-3">
           <div className="min-w-0">
             <div className="text-xs text-muted-foreground">
@@ -154,37 +324,51 @@ export function PracticeRoom({
             <div className="truncate text-sm font-semibold">{test.title}</div>
           </div>
           <div className="flex items-center gap-3">
+            <div className="hidden sm:flex items-center gap-1 text-xs text-muted-foreground">
+              <Sparkles className="h-3 w-3 text-amber-500" />
+              {correctCount} of {answeredCount || 0}
+            </div>
             <button
-              onClick={() => setSoundOn((v) => !v)}
+              onClick={toggleSound}
               className="text-muted-foreground hover:text-foreground"
               aria-label={soundOn ? "Mute" : "Unmute"}
             >
               {soundOn ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}
             </button>
             <div
-              className={`rounded-md px-3 py-1 font-mono text-sm tabular-nums ${
-                remaining <= 60_000 ? "bg-rose-100 text-rose-700 dark:bg-rose-950 dark:text-rose-300" : "bg-muted"
+              className={`rounded-md px-3 py-1 font-mono text-sm tabular-nums transition-colors ${
+                remaining <= 60_000
+                  ? "bg-rose-100 text-rose-700 dark:bg-rose-950 dark:text-rose-300 animate-pulse"
+                  : "bg-muted"
               }`}
             >
               {String(remMin).padStart(2, "0")}:{String(remSec).padStart(2, "0")}
             </div>
           </div>
         </div>
-        {/* Progress */}
-        <div className="h-1 w-full bg-muted">
-          <div
-            className="h-full bg-amber-400 transition-all"
-            style={{ width: `${((idx + 1) / total) * 100}%` }}
+        <div className="relative h-1.5 w-full bg-muted overflow-hidden">
+          <motion.div
+            className="absolute inset-y-0 left-0 bg-amber-400"
+            animate={{ width: `${percentDone}%` }}
+            transition={{ duration: 0.35 }}
           />
+          {/* milestone stars */}
+          {[25, 50, 75].map((m) => (
+            <span
+              key={m}
+              className="absolute top-0 h-full w-px bg-background/50"
+              style={{ left: `${m}%` }}
+            />
+          ))}
         </div>
       </header>
 
-      <main className="mx-auto max-w-4xl px-4 py-8">
+      <main className="mx-auto max-w-3xl px-4 py-8">
         <div className="mb-3 flex items-center justify-between text-sm text-muted-foreground">
           <span>
             Question <span className="font-semibold text-foreground">{idx + 1}</span> of {total}
           </span>
-          <span>{responded} / {total} answered</span>
+          <span className="hidden sm:inline">{answeredCount} answered</span>
         </div>
 
         <AnimatePresence mode="wait">
@@ -194,26 +378,33 @@ export function PracticeRoom({
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -10 }}
             transition={{ duration: 0.18 }}
-            className="rounded-2xl border bg-background p-6 shadow-sm sm:p-8"
+            className="rounded-3xl border-2 bg-background p-6 shadow-sm sm:p-8"
           >
-            <p className="text-lg leading-relaxed sm:text-xl">{q.prompt}</p>
+            <p className="text-xl leading-relaxed sm:text-2xl font-medium">{q.prompt}</p>
 
             <div className="mt-6">
               {q.type === "mcq" && q.choices ? (
-                <div className="grid gap-2">
+                <div className="grid gap-2.5 sm:grid-cols-2">
                   {q.choices.map((c, ci) => {
                     const selected = responses[q.id] === String(c);
+                    const isCorrectChoice = grade && String(c) === grade.correctAnswer;
+                    const isWrongChoiceSelected = grade && selected && !grade.isCorrect;
+                    let cls = "border-transparent bg-muted/40 hover:border-muted-foreground/20";
+                    if (isChecked) {
+                      if (isCorrectChoice) cls = "border-emerald-400 bg-emerald-50 dark:bg-emerald-950/40";
+                      else if (isWrongChoiceSelected) cls = "border-rose-400 bg-rose-50 dark:bg-rose-950/40";
+                      else cls = "border-transparent bg-muted/30 opacity-60";
+                    } else if (selected) {
+                      cls = "border-amber-400 bg-amber-50 dark:bg-amber-950/40";
+                    }
                     return (
                       <button
                         key={ci}
+                        disabled={isChecked}
                         onClick={() => setResponse(q.id, String(c))}
-                        className={`text-left rounded-xl border-2 px-4 py-3 text-base transition-all ${
-                          selected
-                            ? "border-amber-400 bg-amber-50 dark:bg-amber-950/40"
-                            : "border-transparent bg-muted/40 hover:border-muted-foreground/20"
-                        }`}
+                        className={`text-left rounded-2xl border-2 px-4 py-3.5 text-base transition-all disabled:cursor-default ${cls}`}
                       >
-                        <span className="mr-3 inline-flex h-6 w-6 items-center justify-center rounded-full bg-background font-mono text-xs">
+                        <span className="mr-3 inline-flex h-7 w-7 items-center justify-center rounded-full bg-background font-mono text-xs font-semibold">
                           {String.fromCharCode(65 + ci)}
                         </span>
                         {c}
@@ -228,25 +419,95 @@ export function PracticeRoom({
                   value={responses[q.id] ?? ""}
                   onChange={(e) => setResponse(q.id, e.target.value)}
                   placeholder="Type your answer"
-                  className="h-12 max-w-xs text-lg"
+                  disabled={isChecked}
+                  className="h-14 max-w-xs text-xl font-medium"
                 />
               ) : q.type === "short" ? (
                 <Input
                   value={responses[q.id] ?? ""}
                   onChange={(e) => setResponse(q.id, e.target.value)}
                   placeholder="Write your answer"
+                  disabled={isChecked}
                   className="h-12 text-base"
                 />
               ) : (
                 <Textarea
-                  rows={6}
+                  rows={5}
                   value={responses[q.id] ?? ""}
                   onChange={(e) => setResponse(q.id, e.target.value)}
                   placeholder="Write your answer"
+                  disabled={isChecked}
                   className="text-base"
                 />
               )}
             </div>
+
+            <AnimatePresence>
+              {isChecked && grade && (
+                <motion.div
+                  initial={{ opacity: 0, y: 8, scale: 0.98 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0 }}
+                  transition={{ duration: 0.22, type: "spring", stiffness: 300, damping: 22 }}
+                  className={`mt-6 rounded-2xl p-4 sm:p-5 ${
+                    grade.awaitingTeacher
+                      ? "bg-sky-50 border border-sky-200 dark:bg-sky-950/30 dark:border-sky-800"
+                      : grade.isCorrect
+                      ? "bg-emerald-50 border border-emerald-300 dark:bg-emerald-950/30 dark:border-emerald-800"
+                      : "bg-amber-50 border border-amber-300 dark:bg-amber-950/30 dark:border-amber-800"
+                  }`}
+                >
+                  <div className="flex items-start gap-3">
+                    <div
+                      className={`mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-white ${
+                        grade.awaitingTeacher
+                          ? "bg-sky-500"
+                          : grade.isCorrect
+                          ? "bg-emerald-500"
+                          : "bg-amber-500"
+                      }`}
+                    >
+                      {grade.awaitingTeacher ? (
+                        <Info className="h-5 w-5" />
+                      ) : grade.isCorrect ? (
+                        <motion.span
+                          initial={{ scale: 0 }}
+                          animate={{ scale: [0, 1.4, 1] }}
+                          transition={{ duration: 0.5 }}
+                        >
+                          <Check className="h-5 w-5" strokeWidth={3} />
+                        </motion.span>
+                      ) : (
+                        <span className="font-bold">!</span>
+                      )}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="font-semibold">
+                        {grade.awaitingTeacher
+                          ? "Answer saved"
+                          : grade.isCorrect
+                          ? grade.feedback
+                          : grade.feedback}
+                      </p>
+                      {!grade.awaitingTeacher && !grade.isCorrect && (
+                        <p className="mt-1 text-sm text-muted-foreground">
+                          The correct answer is{" "}
+                          <span className="font-medium text-foreground">{grade.correctAnswer}</span>.
+                        </p>
+                      )}
+                      {grade.awaitingTeacher && (
+                        <p className="mt-1 text-sm text-muted-foreground">
+                          Your teacher will look at this one.
+                        </p>
+                      )}
+                    </div>
+                    {grade.isCorrect && !grade.awaitingTeacher && (
+                      <StarBurst />
+                    )}
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
 
             {showNotes && (
               <div className="mt-6 rounded-xl border border-dashed p-4">
@@ -265,53 +526,59 @@ export function PracticeRoom({
           </motion.div>
         </AnimatePresence>
 
-        {/* Bottom bar */}
         <div className="mt-6 flex items-center justify-between gap-3">
-          <Button
-            variant="outline"
-            onClick={() => setIdx((i) => Math.max(0, i - 1))}
-            disabled={idx === 0}
-          >
-            <ChevronLeft className="mr-1 h-4 w-4" /> Previous
-          </Button>
           <Button
             variant="ghost"
             size="sm"
             onClick={() => setShowNotes((v) => !v)}
           >
             <StickyNote className="mr-1 h-4 w-4" />
-            {showNotes ? "Hide notes" : "Show notes"}
+            {showNotes ? "Hide notes" : "Notes"}
           </Button>
-          {idx < total - 1 ? (
-            <Button onClick={() => setIdx((i) => Math.min(total - 1, i + 1))}>
-              Next <ChevronRight className="ml-1 h-4 w-4" />
+          {!isChecked ? (
+            <Button onClick={onCheck} size="lg" className="min-w-[160px] h-12 text-base">
+              <Check className="mr-1.5 h-4 w-4" /> Check answer
             </Button>
           ) : (
-            <Button onClick={onSubmit} disabled={pending}>
-              <Send className="mr-1 h-4 w-4" />
-              {pending ? "Submitting…" : "Submit"}
+            <Button
+              onClick={onNext}
+              size="lg"
+              disabled={pending}
+              className="min-w-[160px] h-12 text-base"
+            >
+              {idx < total - 1 ? (
+                <>Next question →</>
+              ) : (
+                <>
+                  <Send className="mr-1.5 h-4 w-4" /> See my results
+                </>
+              )}
             </Button>
           )}
         </div>
 
         {/* Question map */}
-        <div className="mt-8">
-          <div className="mb-2 text-xs text-muted-foreground">Jump to question</div>
+        <div className="mt-10">
+          <div className="mb-2 text-xs text-muted-foreground">Progress</div>
           <div className="flex flex-wrap gap-1.5">
             {questions.map((qq, qi) => {
-              const done = !!responses[qq.id]?.trim();
+              const g = checked[qq.id];
               const active = qi === idx;
+              let cls = "bg-muted text-muted-foreground";
+              if (g) {
+                cls = g.awaitingTeacher
+                  ? "bg-sky-200 text-sky-900 dark:bg-sky-900 dark:text-sky-100"
+                  : g.isCorrect
+                  ? "bg-emerald-200 text-emerald-900 dark:bg-emerald-900 dark:text-emerald-100"
+                  : "bg-amber-200 text-amber-900 dark:bg-amber-900 dark:text-amber-100";
+              }
+              if (active) cls = "bg-foreground text-background";
               return (
                 <button
                   key={qq.id}
                   onClick={() => setIdx(qi)}
-                  className={`h-8 w-8 rounded-md text-xs font-mono transition-all ${
-                    active
-                      ? "bg-foreground text-background"
-                      : done
-                      ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300"
-                      : "bg-muted text-muted-foreground hover:bg-muted-foreground/20"
-                  }`}
+                  className={`h-8 w-8 rounded-md text-xs font-mono transition-all ${cls}`}
+                  aria-label={`Question ${qi + 1}`}
                 >
                   {qi + 1}
                 </button>
@@ -320,6 +587,60 @@ export function PracticeRoom({
           </div>
         </div>
       </main>
+    </div>
+  );
+}
+
+// --- Small helpers -----------------------------------------------------------
+
+function StatChip({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {
+  return (
+    <div className="rounded-xl border bg-muted/40 p-3">
+      <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+        {icon}
+        {label}
+      </div>
+      <div className="mt-0.5 text-lg font-semibold">{value}</div>
+    </div>
+  );
+}
+
+function SectionHeading({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="text-xs uppercase tracking-wide font-semibold text-muted-foreground">
+      {children}
+    </div>
+  );
+}
+
+function Tip({ icon, children }: { icon: React.ReactNode; children: React.ReactNode }) {
+  return (
+    <div className="flex items-start gap-2.5 text-sm">
+      <div className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-amber-100 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300">
+        {icon}
+      </div>
+      <p className="leading-relaxed">{children}</p>
+    </div>
+  );
+}
+
+function StarBurst() {
+  return (
+    <div className="relative h-9 w-9 shrink-0">
+      {[...Array(6)].map((_, i) => {
+        const angle = (i / 6) * Math.PI * 2;
+        const dx = Math.cos(angle) * 22;
+        const dy = Math.sin(angle) * 22;
+        return (
+          <motion.span
+            key={i}
+            className="absolute left-1/2 top-1/2 h-1.5 w-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-amber-400"
+            initial={{ x: 0, y: 0, opacity: 1, scale: 1 }}
+            animate={{ x: dx, y: dy, opacity: 0, scale: 0.4 }}
+            transition={{ duration: 0.6, ease: "easeOut" }}
+          />
+        );
+      })}
     </div>
   );
 }
