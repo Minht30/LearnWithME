@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { signExplanationUrl } from "@/app/actions/upload-explanation";
 
 export const dynamic = "force-dynamic";
 import type { DbAttempt, DbQuestion, DbTest } from "@/lib/db/types";
@@ -17,17 +18,29 @@ async function loadAttempt(attemptId: string) {
   const [{ data: test }, { data: questions }, { data: existingAnswers }] = await Promise.all([
     admin.from("tests").select("*").eq("id", attempt.test_id).maybeSingle(),
     admin.from("questions").select("*").eq("test_id", attempt.test_id).order("position"),
-    admin.from("answers").select("question_id, response, note, explanation").eq("attempt_id", attemptId),
+    admin
+      .from("answers")
+      .select("question_id, response, note, explanation_file_path, explanation_mime")
+      .eq("attempt_id", attemptId),
   ]);
   if (!test || !questions) return null;
 
   const initialResponses: Record<string, string> = {};
   const initialNotes: Record<string, string> = {};
-  const initialExplanations: Record<string, string> = {};
+  const initialWork: Record<string, { url: string; mime: string; path: string }> = {};
   for (const a of existingAnswers ?? []) {
     if (a.response) initialResponses[a.question_id] = a.response as string;
     if (a.note) initialNotes[a.question_id] = a.note;
-    if (a.explanation) initialExplanations[a.question_id] = a.explanation as string;
+    if (a.explanation_file_path) {
+      const url = await signExplanationUrl(a.explanation_file_path as string, 60 * 60 * 8);
+      if (url) {
+        initialWork[a.question_id] = {
+          url,
+          mime: (a.explanation_mime as string) ?? "image/jpeg",
+          path: a.explanation_file_path as string,
+        };
+      }
+    }
   }
 
   return {
@@ -36,7 +49,7 @@ async function loadAttempt(attemptId: string) {
     questions: questions as DbQuestion[],
     initialResponses,
     initialNotes,
-    initialExplanations,
+    initialWork,
   };
 }
 

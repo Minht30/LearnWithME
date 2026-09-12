@@ -1,13 +1,16 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { signExplanationUrl } from "@/app/actions/upload-explanation";
 
 export const dynamic = "force-dynamic";
 import type { DbAttempt, DbAnswer, DbQuestion, DbTest, DbStudent } from "@/lib/db/types";
 import { Card } from "@/components/ui/card";
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { Check, Sparkles } from "lucide-react";
+import { Check, Sparkles, FileText } from "lucide-react";
+
+type EnrichedAnswer = DbAnswer & { workUrl?: string };
 
 async function loadResult(attemptId: string) {
   const admin = createAdminClient();
@@ -26,11 +29,23 @@ async function loadResult(attemptId: string) {
   ]);
   if (!test || !questions) return null;
 
+  // Sign work-file URLs for display
+  const enriched: EnrichedAnswer[] = await Promise.all(
+    ((answers ?? []) as DbAnswer[]).map(async (a) => {
+      const path = (a as unknown as { explanation_file_path?: string | null }).explanation_file_path;
+      if (path) {
+        const url = await signExplanationUrl(path, 60 * 60 * 24);
+        return { ...a, workUrl: url ?? undefined };
+      }
+      return a as EnrichedAnswer;
+    })
+  );
+
   return {
     attempt: attempt as DbAttempt,
     test: test as DbTest,
     questions: questions as DbQuestion[],
-    answers: (answers ?? []) as DbAnswer[],
+    answers: enriched,
     student: (student ?? null) as DbStudent | null,
   };
 }
@@ -155,11 +170,13 @@ function ReviewCard({
 }: {
   index: number;
   q: DbQuestion;
-  a: DbAnswer | null;
+  a: EnrichedAnswer | null;
 }) {
   const correct = !!a?.is_correct;
   const response = (a?.response as string) ?? "";
   const correctText = Array.isArray(q.correct) ? q.correct.join(", ") : String(q.correct);
+  const isImage = a?.workUrl && (a as unknown as { explanation_mime?: string | null }).explanation_mime?.startsWith("image/");
+  const isPdf = a?.workUrl && (a as unknown as { explanation_mime?: string | null }).explanation_mime === "application/pdf";
 
   return (
     <Card
@@ -188,12 +205,32 @@ function ReviewCard({
                 {response.trim() || <span className="italic text-muted-foreground">(no answer)</span>}
               </div>
             </div>
-            {a?.explanation && (
+            {a?.workUrl && (
               <div>
-                <span className="text-xs text-muted-foreground">Your thinking</span>
-                <div className="mt-0.5 rounded border bg-background/60 px-2.5 py-1 whitespace-pre-wrap">
-                  {a.explanation}
-                </div>
+                <span className="text-xs text-muted-foreground">Your work</span>
+                {isImage ? (
+                  <a href={a.workUrl} target="_blank" rel="noreferrer" className="mt-1 block">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={a.workUrl}
+                      alt="Student work"
+                      className="max-h-64 rounded-lg border bg-background object-contain"
+                    />
+                  </a>
+                ) : isPdf ? (
+                  <a
+                    href={a.workUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="mt-0.5 inline-flex items-center gap-1.5 rounded border bg-background/60 px-2.5 py-1.5 text-sm hover:border-foreground/40"
+                  >
+                    <FileText className="h-4 w-4" /> Open PDF
+                  </a>
+                ) : (
+                  <a href={a.workUrl} target="_blank" rel="noreferrer" className="text-amber-700 underline">
+                    Open uploaded file
+                  </a>
+                )}
               </div>
             )}
             {!correct && (

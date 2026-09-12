@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
 import { toast } from "sonner";
 import { saveAnswer, submitAttempt } from "@/app/actions/student-actions";
+import { uploadExplanationFile } from "@/app/actions/upload-explanation";
 import { playChime, playCorrect, playIncorrect } from "@/lib/sounds";
 import type { DbAttempt, DbQuestion, DbTest } from "@/lib/db/types";
 import {
@@ -18,11 +19,17 @@ import {
   Play,
   Check,
   Sparkles,
-  BookOpen,
+  Camera,
   Clock,
   ListChecks,
   Info,
+  Upload,
+  FileText,
+  X as XIcon,
+  Loader2,
 } from "lucide-react";
+
+type WorkFile = { url: string; mime: string; path: string };
 
 type Props = {
   attempt: DbAttempt;
@@ -30,7 +37,7 @@ type Props = {
   questions: DbQuestion[];
   initialResponses: Record<string, string>;
   initialNotes: Record<string, string>;
-  initialExplanations: Record<string, string>;
+  initialWork: Record<string, WorkFile>;
 };
 
 type LocalGrade = {
@@ -92,13 +99,14 @@ export function PracticeRoom({
   questions,
   initialResponses,
   initialNotes,
-  initialExplanations,
+  initialWork,
 }: Props) {
   const [phase, setPhase] = useState<Phase>("briefing");
   const [idx, setIdx] = useState(0);
   const [responses, setResponses] = useState(initialResponses);
   const [notes, setNotes] = useState(initialNotes);
-  const [explanations, setExplanations] = useState(initialExplanations);
+  const [workUploads, setWorkUploads] = useState<Record<string, WorkFile>>(initialWork);
+  const [uploading, setUploading] = useState<Record<string, boolean>>({});
   const [checked, setChecked] = useState<Record<string, LocalGrade>>({});
   const [showNotes, setShowNotes] = useState(false);
   const [soundOn, setSoundOn] = useState(true);
@@ -166,13 +174,14 @@ export function PracticeRoom({
     }
   }, [phase, remaining, totalMs, soundOn]);
 
-  // --- Debounced autosave -----------------------------------------------------
+  // --- Debounced autosave (response + notes only) ----------------------------
+  // Uploaded files persist via their own server action; no need to include here.
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const scheduleSave = useCallback(
-    (questionId: string, response: string, note: string | null, explanation: string | null) => {
+    (questionId: string, response: string, note: string | null) => {
       if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
       saveTimeoutRef.current = setTimeout(() => {
-        saveAnswer(attempt.id, questionId, response, note, explanation);
+        saveAnswer(attempt.id, questionId, response, note);
       }, 600);
     },
     [attempt.id]
@@ -180,32 +189,45 @@ export function PracticeRoom({
 
   function setResponse(qid: string, val: string) {
     setResponses((prev) => ({ ...prev, [qid]: val }));
-    scheduleSave(qid, val, notes[qid] ?? null, explanations[qid] ?? null);
+    scheduleSave(qid, val, notes[qid] ?? null);
   }
   function setNote(qid: string, val: string) {
     setNotes((prev) => ({ ...prev, [qid]: val }));
-    scheduleSave(qid, responses[qid] ?? "", val, explanations[qid] ?? null);
+    scheduleSave(qid, responses[qid] ?? "", val);
   }
-  function setExplanation(qid: string, val: string) {
-    setExplanations((prev) => ({ ...prev, [qid]: val }));
-    scheduleSave(qid, responses[qid] ?? "", notes[qid] ?? null, val);
+
+  async function uploadWork(qid: string, file: File) {
+    setUploading((prev) => ({ ...prev, [qid]: true }));
+    const fd = new FormData();
+    fd.append("file", file);
+    fd.append("attemptId", attempt.id);
+    fd.append("questionId", qid);
+    const res = await uploadExplanationFile(fd);
+    setUploading((prev) => ({ ...prev, [qid]: false }));
+    if (res.ok) {
+      setWorkUploads((prev) => ({
+        ...prev,
+        [qid]: { url: res.url, mime: res.mime, path: res.path },
+      }));
+    } else {
+      toast.error(res.error);
+    }
   }
 
   function onCheck() {
     if (!q) return;
     const response = responses[q.id] ?? "";
-    const explanation = explanations[q.id] ?? "";
     if (!response.trim()) {
       toast.error("Type an answer first.");
       return;
     }
-    if (!explanation.trim()) {
-      toast.error("Explain your thinking before you check.");
+    if (!workUploads[q.id]) {
+      toast.error("Upload a photo of your work first.");
       return;
     }
     // Flush pending autosave immediately
     if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
-    saveAnswer(attempt.id, q.id, response, notes[q.id] ?? null, explanation);
+    saveAnswer(attempt.id, q.id, response, notes[q.id] ?? null);
 
     const grade = gradeLocally(q, response);
     setChecked((prev) => ({ ...prev, [q.id]: grade }));
@@ -262,8 +284,8 @@ export function PracticeRoom({
 
           <div className="mt-6 space-y-3">
             <SectionHeading>How this works</SectionHeading>
-            <Tip icon={<BookOpen className="h-4 w-4" />}>
-              Read each question, type your answer, and <b>explain how you got it</b> in the &quot;Show your work&quot; box.
+            <Tip icon={<Camera className="h-4 w-4" />}>
+              Do your work on paper, then take a <b>photo</b> and upload it before you check.
             </Tip>
             <Tip icon={<Check className="h-4 w-4" />}>
               Tap <b>Check answer</b>. You&apos;ll see right away if you got it. If not, we&apos;ll show you the right answer.
@@ -454,29 +476,29 @@ export function PracticeRoom({
               )}
             </div>
 
-            {/* Show your work — required on every question */}
+            {/* Show your work — upload a photo of paper work (required) */}
             <div className="mt-6">
-              <div className="mb-1.5 flex items-center gap-2">
+              <div className="mb-2 flex items-center gap-2">
                 <div className="flex h-6 w-6 items-center justify-center rounded-full bg-amber-100 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300">
-                  <BookOpen className="h-3.5 w-3.5" />
+                  <Camera className="h-3.5 w-3.5" />
                 </div>
-                <label htmlFor={`explain-${q.id}`} className="text-sm font-medium">
-                  Show your work — explain your thinking step by step
-                </label>
-                <span className="text-xs text-muted-foreground">(required)</span>
+                <span className="text-sm font-medium">
+                  Show your work
+                </span>
+                <span className="text-xs text-muted-foreground">(photo of your paper — required)</span>
               </div>
-              <Textarea
-                id={`explain-${q.id}`}
-                rows={3}
-                value={explanations[q.id] ?? ""}
-                onChange={(e) => setExplanation(q.id, e.target.value)}
+              <WorkUpload
+                questionId={q.id}
+                current={workUploads[q.id]}
+                uploading={!!uploading[q.id]}
                 disabled={isChecked}
-                placeholder="Walk me through how you got your answer…"
-                className="text-base"
+                onFile={(f) => uploadWork(q.id, f)}
+                onClear={() => setWorkUploads((prev) => {
+                  const next = { ...prev };
+                  delete next[q.id];
+                  return next;
+                })}
               />
-              <p className="mt-1 text-xs text-muted-foreground">
-                Your teacher reads this to see how you&apos;re thinking.
-              </p>
             </div>
 
             <AnimatePresence>
@@ -658,6 +680,130 @@ function Tip({ icon, children }: { icon: React.ReactNode; children: React.ReactN
       </div>
       <p className="leading-relaxed">{children}</p>
     </div>
+  );
+}
+
+function WorkUpload({
+  questionId,
+  current,
+  uploading,
+  disabled,
+  onFile,
+  onClear,
+}: {
+  questionId: string;
+  current: WorkFile | undefined;
+  uploading: boolean;
+  disabled: boolean;
+  onFile: (file: File) => void;
+  onClear: () => void;
+}) {
+  const inputId = `work-${questionId}`;
+  const isImage = current?.mime?.startsWith("image/");
+  const isPdf = current?.mime === "application/pdf";
+
+  if (current) {
+    return (
+      <div className="rounded-2xl border-2 border-emerald-300 bg-emerald-50/50 p-3 dark:bg-emerald-950/20">
+        <div className="flex items-start gap-3">
+          {isImage ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={current.url}
+              alt="Your work"
+              className="h-24 w-24 shrink-0 rounded-lg object-cover ring-1 ring-emerald-200"
+            />
+          ) : (
+            <div className="flex h-24 w-24 shrink-0 items-center justify-center rounded-lg bg-white text-rose-600 ring-1 ring-emerald-200">
+              <FileText className="h-8 w-8" />
+            </div>
+          )}
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-medium text-emerald-900 dark:text-emerald-200">
+              Work uploaded
+            </p>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              {isPdf ? "PDF ready to submit." : "Photo ready to submit."}{" "}
+              {!disabled && "You can replace it below."}
+            </p>
+            {!disabled && (
+              <div className="mt-3 flex gap-2">
+                <label
+                  htmlFor={inputId}
+                  className="inline-flex cursor-pointer items-center gap-1.5 rounded-md border bg-background px-3 py-1.5 text-xs font-medium hover:border-foreground/40"
+                >
+                  <Upload className="h-3.5 w-3.5" /> Replace
+                </label>
+                <button
+                  type="button"
+                  onClick={onClear}
+                  className="inline-flex items-center gap-1.5 rounded-md border bg-background px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground"
+                >
+                  <XIcon className="h-3.5 w-3.5" /> Remove
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+        <input
+          id={inputId}
+          type="file"
+          accept="image/*,application/pdf"
+          className="hidden"
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            if (f) onFile(f);
+            e.target.value = "";
+          }}
+          disabled={disabled}
+        />
+      </div>
+    );
+  }
+
+  return (
+    <>
+      <input
+        id={inputId}
+        type="file"
+        accept="image/*,application/pdf"
+        capture="environment"
+        className="hidden"
+        onChange={(e) => {
+          const f = e.target.files?.[0];
+          if (f) onFile(f);
+          e.target.value = "";
+        }}
+        disabled={disabled}
+      />
+      <label
+        htmlFor={inputId}
+        className={`flex flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed py-8 text-center transition-colors ${
+          disabled
+            ? "pointer-events-none opacity-50"
+            : "cursor-pointer hover:border-amber-400 hover:bg-amber-50/40 dark:hover:bg-amber-950/20"
+        }`}
+      >
+        {uploading ? (
+          <>
+            <Loader2 className="h-6 w-6 animate-spin text-amber-600" />
+            <span className="text-sm text-muted-foreground">Uploading your work…</span>
+          </>
+        ) : (
+          <>
+            <div className="flex h-12 w-12 items-center justify-center rounded-full bg-amber-100 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300">
+              <Camera className="h-6 w-6" />
+            </div>
+            <div>
+              <p className="text-sm font-semibold">Take a photo of your paper</p>
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                or pick an image / PDF (12 MB max)
+              </p>
+            </div>
+          </>
+        )}
+      </label>
+    </>
   );
 }
 

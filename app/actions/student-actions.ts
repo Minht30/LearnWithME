@@ -6,6 +6,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { generateJson } from "@/lib/ai/client";
 import { GRADER_SYSTEM_PROMPT } from "@/lib/ai/prompts";
 import { sendEmail } from "@/lib/email";
+import { signExplanationUrl } from "@/app/actions/upload-explanation";
 import { env } from "@/lib/env";
 import type { DbQuestion } from "@/lib/db/types";
 
@@ -290,15 +291,30 @@ async function emailResultsToTeacher(attemptId: string): Promise<void> {
     .maybeSingle();
   if (!teacherRow?.email) return;
 
-  const answerMap = new Map<string, { response: string; explanation: string | null; is_correct: boolean | null; score: number | null; feedback: string | null }>();
-  for (const a of answers ?? [])
+  type AnswerRow = {
+    response: string;
+    is_correct: boolean | null;
+    score: number | null;
+    feedback: string | null;
+    workUrl: string | null;
+    workMime: string | null;
+  };
+  const answerMap = new Map<string, AnswerRow>();
+  for (const a of answers ?? []) {
+    const workPath = (a as unknown as { explanation_file_path?: string | null }).explanation_file_path ?? null;
+    const workMime = (a as unknown as { explanation_mime?: string | null }).explanation_mime ?? null;
+    const workUrl = workPath
+      ? await signExplanationUrl(workPath, 60 * 60 * 24 * 7) // 7-day URL for email
+      : null;
     answerMap.set(a.question_id, {
       response: (a.response as string) ?? "",
-      explanation: (a.explanation as string | null) ?? null,
       is_correct: a.is_correct,
       score: a.score,
       feedback: a.feedback,
+      workUrl,
+      workMime,
     });
+  }
 
   const qs = (questions as DbQuestion[]) ?? [];
   const correctCount = qs.filter((q) => answerMap.get(q.id)?.is_correct).length;
@@ -316,14 +332,18 @@ async function emailResultsToTeacher(attemptId: string): Promise<void> {
     total,
     percent,
     resultUrl,
-    questions: qs.map((q) => ({
-      prompt: q.prompt,
-      correctAnswer: Array.isArray(q.correct) ? q.correct.join(", ") : String(q.correct),
-      response: answerMap.get(q.id)?.response ?? "",
-      explanation: answerMap.get(q.id)?.explanation ?? "",
-      isCorrect: !!answerMap.get(q.id)?.is_correct,
-      feedback: answerMap.get(q.id)?.feedback ?? "",
-    })),
+    questions: qs.map((q) => {
+      const a = answerMap.get(q.id);
+      return {
+        prompt: q.prompt,
+        correctAnswer: Array.isArray(q.correct) ? q.correct.join(", ") : String(q.correct),
+        response: a?.response ?? "",
+        workUrl: a?.workUrl ?? null,
+        workMime: a?.workMime ?? null,
+        isCorrect: !!a?.is_correct,
+        feedback: a?.feedback ?? "",
+      };
+    }),
   });
 
   const res = await sendEmail({
@@ -361,7 +381,8 @@ function renderResultsEmail(o: {
     prompt: string;
     correctAnswer: string;
     response: string;
-    explanation: string;
+    workUrl: string | null;
+    workMime: string | null;
     isCorrect: boolean;
     feedback: string;
   }[];
@@ -373,6 +394,18 @@ function renderResultsEmail(o: {
       const badge = q.isCorrect
         ? '<span style="background:#10b981;color:#fff;padding:2px 8px;border-radius:999px;font-size:11px;">Correct</span>'
         : '<span style="background:#f59e0b;color:#fff;padding:2px 8px;border-radius:999px;font-size:11px;">Missed</span>';
+      const isImage = q.workUrl && q.workMime?.startsWith("image/");
+      const isPdf = q.workUrl && q.workMime === "application/pdf";
+      const workRow = q.workUrl
+        ? `<tr><td style="color:#666;vertical-align:top;padding-top:8px;">Their work</td><td style="padding-top:8px;">
+             ${isImage
+               ? `<a href="${q.workUrl}" target="_blank"><img src="${q.workUrl}" alt="Student work" style="max-width:100%;max-height:280px;border:1px solid #ddd;border-radius:6px;background:#fff;" /></a>`
+               : isPdf
+               ? `<a href="${q.workUrl}" target="_blank" style="display:inline-block;background:#fff;border:1px solid #ddd;border-radius:6px;padding:8px 12px;text-decoration:none;color:#111;font-size:14px;">📄 Open PDF of their work</a>`
+               : `<a href="${q.workUrl}" target="_blank" style="color:#b45309;">Open uploaded file</a>`}
+             <div style="font-size:11px;color:#94a3b8;margin-top:4px;">Link expires in 7 days.</div>
+           </td></tr>`
+        : `<tr><td style="color:#666;vertical-align:top;padding-top:6px;">Their work</td><td style="padding-top:6px;color:#94a3b8;font-style:italic;">(no upload)</td></tr>`;
       return `
       <div style="background:${bg};border:1px solid ${border};border-radius:8px;padding:16px;margin-bottom:12px;">
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
@@ -385,10 +418,7 @@ function renderResultsEmail(o: {
             <td style="width:120px;color:#666;vertical-align:top;">Student answer</td>
             <td style="background:#fff;border:1px solid #ddd;border-radius:4px;padding:6px 10px;">${esc(q.response) || "<em>(no answer)</em>"}</td>
           </tr>
-          <tr>
-            <td style="color:#666;vertical-align:top;padding-top:6px;">Their thinking</td>
-            <td style="background:#fff;border:1px solid #ddd;border-radius:4px;padding:6px 10px;margin-top:6px;white-space:pre-wrap;">${esc(q.explanation) || "<em>(none)</em>"}</td>
-          </tr>
+          ${workRow}
           ${!q.isCorrect ? `<tr><td style="color:#666;vertical-align:top;padding-top:6px;">Correct answer</td><td style="background:#dcfce7;border:1px solid #86efac;border-radius:4px;padding:6px 10px;">${esc(q.correctAnswer)}</td></tr>` : ""}
         </table>
       </div>`;
