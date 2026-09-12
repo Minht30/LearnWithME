@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState, useTransition, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Card } from "@/components/ui/card";
@@ -9,9 +9,10 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
-import { Plus, Save, Trash2, Sparkles, Loader2, ArrowLeft } from "lucide-react";
+import { Plus, Save, Trash2, Sparkles, Loader2, ArrowLeft, Upload, FileText } from "lucide-react";
 import { createManualTest } from "@/app/actions/create-manual-test";
-import type { QuestionType, Difficulty } from "@/lib/schemas/question";
+import { parseTestFromDoc } from "@/app/actions/parse-test-doc";
+import type { QuestionType, Difficulty, Question } from "@/lib/schemas/question";
 
 const SUBJECTS = ["Math","English","French","Science","Physics","Chemistry","Biology","History","Geography","Social Studies","Other"];
 const GRADES = ["1","2","3","4","5","6","7","8","9","10","11","12"];
@@ -43,9 +44,23 @@ function newDraft(type: QuestionType = "mcq"): Draft {
   };
 }
 
+function questionToDraft(q: Question): Draft {
+  const correct = Array.isArray(q.correct) ? q.correct.join(", ") : String(q.correct);
+  return {
+    type: q.type,
+    prompt: q.prompt,
+    choices: q.type === "mcq" ? (q.choices?.length ? [...q.choices, "", "", "", ""].slice(0, Math.max(4, q.choices.length)) : ["", "", "", ""]) : [],
+    correct,
+    rubric: q.rubric ?? "",
+    difficulty: q.difficulty,
+  };
+}
+
 export default function ManualBuilderPage() {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
+  const [importing, setImporting] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [title, setTitle] = useState("");
   const [subject, setSubject] = useState("Math");
@@ -83,6 +98,34 @@ export default function ManualBuilderPage() {
       choices: nextType === "mcq" ? (cur.choices.length ? cur.choices : ["", "", "", ""]) : [],
       correct: nextType === "mcq" ? "" : cur.correct,
     });
+  }
+
+  async function onImport(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setImporting(true);
+    const fd = new FormData();
+    fd.append("file", file);
+    const res = await parseTestFromDoc(fd);
+    setImporting(false);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+    if (!res.ok) {
+      toast.error(res.error);
+      return;
+    }
+    const drafts = res.parsed.questions.map(questionToDraft);
+    // Replace an initial empty draft; otherwise append.
+    setQuestions((prev) => {
+      const isPrevEmpty =
+        prev.length === 1 && !prev[0].prompt.trim() && !prev[0].correct.trim();
+      return isPrevEmpty ? drafts : [...prev, ...drafts];
+    });
+    if (!title.trim() && res.parsed.title) setTitle(res.parsed.title);
+    if (res.parsed.subject && SUBJECTS.includes(res.parsed.subject)) setSubject(res.parsed.subject);
+    if (res.parsed.grade && GRADES.includes(res.parsed.grade)) setGrade(res.parsed.grade);
+    toast.success(
+      `Imported ${drafts.length} question${drafts.length === 1 ? "" : "s"} from ${res.filename}. Review and edit any that need it.`
+    );
   }
 
   function validate(): string | null {
@@ -205,6 +248,45 @@ export default function ManualBuilderPage() {
               onChange={(e) => setDuration(Number(e.target.value) || 30)}
             />
           </div>
+        </div>
+      </Card>
+
+      {/* Import callout */}
+      <Card className="mt-6 border-dashed p-5">
+        <div className="flex items-start gap-4 flex-wrap sm:flex-nowrap">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-amber-100 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300">
+            <FileText className="h-5 w-5" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <h3 className="font-semibold">Have a test already?</h3>
+            <p className="mt-0.5 text-sm text-muted-foreground">
+              Upload a PDF, DOCX, or TXT and AI will pull out every question into editable form. You review, tweak, and save.
+            </p>
+          </div>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".pdf,.docx,.txt,.md,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain"
+            onChange={onImport}
+            className="hidden"
+            id="import-test-doc"
+          />
+          <label
+            htmlFor="import-test-doc"
+            className={`inline-flex items-center gap-1.5 rounded-md border bg-background px-3 py-1.5 text-sm font-medium transition-colors cursor-pointer hover:border-foreground/40 ${
+              importing ? "pointer-events-none opacity-60" : ""
+            }`}
+          >
+            {importing ? (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin" /> Parsing…
+              </>
+            ) : (
+              <>
+                <Upload className="h-4 w-4" /> Import file
+              </>
+            )}
+          </label>
         </div>
       </Card>
 
