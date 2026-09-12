@@ -1,7 +1,8 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { createAdminClient, getDemoTeacherId } from "@/lib/supabase/admin";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { requireTeacherId } from "@/lib/auth/session";
 
 export async function deleteQuestion(questionId: string, testId: string) {
   const admin = createAdminClient();
@@ -44,7 +45,7 @@ function randomCode(len = 6) {
  */
 export async function shareTestWithClass(testId: string, className: string, grade: string) {
   const admin = createAdminClient();
-  const teacherId = await getDemoTeacherId();
+  const teacherId = await requireTeacherId();
 
   // Try to find existing class for this test
   const { data: existing } = await admin

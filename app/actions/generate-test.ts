@@ -4,7 +4,8 @@ import { revalidatePath } from "next/cache";
 import { generateJson } from "@/lib/ai/client";
 import { GENERATION_SYSTEM_PROMPT, buildUserPrompt } from "@/lib/ai/prompts";
 import { GeneratedTest, TestRequest } from "@/lib/schemas/question";
-import { createAdminClient, getDemoTeacherId } from "@/lib/supabase/admin";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { requireTeacherId } from "@/lib/auth/session";
 import type { z } from "zod";
 
 export type GenerateResult =
@@ -62,7 +63,7 @@ export async function generateTest(
   }
   const test = validated.data;
 
-  const teacherId = await getDemoTeacherId();
+  const teacherId = await requireTeacherId();
   const admin = createAdminClient();
 
   const { data: testRow, error: testErr } = await admin

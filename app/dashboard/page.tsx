@@ -1,5 +1,6 @@
 import Link from "next/link";
-import { createAdminClient, getDemoTeacherId } from "@/lib/supabase/admin";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { requireTeacherId } from "@/lib/auth/session";
 
 export const dynamic = "force-dynamic";
 import { buttonVariants } from "@/components/ui/button";
@@ -9,7 +10,7 @@ import { FileText, Plus, Pencil, Clock } from "lucide-react";
 import type { DbTest } from "@/lib/db/types";
 
 async function loadTests(): Promise<DbTest[]> {
-  const teacherId = await getDemoTeacherId();
+  const teacherId = await requireTeacherId();
   const admin = createAdminClient();
   const { data, error } = await admin
     .from("tests")

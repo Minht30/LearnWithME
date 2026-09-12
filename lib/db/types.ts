@@ -60,6 +60,7 @@ export type DbAnswer = {
   attempt_id: string;
   question_id: string;
   response: unknown;
+  explanation: string | null;
   note: string | null;
   is_correct: boolean | null;
   score: number | null;

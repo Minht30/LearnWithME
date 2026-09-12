@@ -2,7 +2,8 @@
 
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
-import { createAdminClient, getDemoTeacherId } from "@/lib/supabase/admin";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { requireTeacherId } from "@/lib/auth/session";
 import { Question } from "@/lib/schemas/question";
 
 const ManualTest = z.object({
@@ -31,7 +32,7 @@ export async function createManualTest(
   }
   const test = parsed.data;
 
-  const teacherId = await getDemoTeacherId();
+  const teacherId = await requireTeacherId();
   const admin = createAdminClient();
 
   const { data: testRow, error: testErr } = await admin

@@ -1,5 +1,6 @@
 import Link from "next/link";
-import { createAdminClient, getDemoTeacherId } from "@/lib/supabase/admin";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { requireTeacherId } from "@/lib/auth/session";
 
 export const dynamic = "force-dynamic";
 import { Card } from "@/components/ui/card";
@@ -16,7 +17,7 @@ type ClassRow = {
 };
 
 async function loadClasses(): Promise<ClassRow[]> {
-  const teacherId = await getDemoTeacherId();
+  const teacherId = await requireTeacherId();
   const admin = createAdminClient();
   const { data, error } = await admin
     .from("classes")
@@ -51,18 +52,20 @@ export default async function ClassesPage() {
       ) : (
         <div className="grid gap-4 sm:grid-cols-2">
           {classes.map((c) => (
-            <Card key={c.id} className="p-5">
+            <Card key={c.id} className="p-5 transition-all hover:border-foreground/20">
+              <Link href={`/dashboard/classes/${c.id}`} className="block">
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <h3 className="font-semibold">{c.name}</h3>
                   <p className="mt-0.5 text-xs text-muted-foreground">
-                    Grade {c.grade} · {c.students[0]?.count ?? 0} students joined
+                    Grade {c.grade} · {c.students[0]?.count ?? 0} students
                   </p>
                 </div>
                 <span className="rounded-md border-2 border-dashed px-2 py-1 font-mono text-sm tracking-widest">
                   {c.join_code}
                 </span>
               </div>
+              </Link>
               <div className="mt-3 space-y-1">
                 {c.class_tests.length === 0 ? (
                   <p className="text-xs text-muted-foreground italic">No test attached.</p>
@@ -82,6 +85,12 @@ export default async function ClassesPage() {
                 <Copy className="h-3 w-3" />
                 /join/{c.join_code}
               </div>
+              <Link
+                href={`/dashboard/classes/${c.id}`}
+                className="mt-3 block text-sm font-medium text-amber-700 hover:underline"
+              >
+                Manage roster →
+              </Link>
             </Card>
           ))}
         </div>

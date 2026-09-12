@@ -30,6 +30,7 @@ type Props = {
   questions: DbQuestion[];
   initialResponses: Record<string, string>;
   initialNotes: Record<string, string>;
+  initialExplanations: Record<string, string>;
 };
 
 type LocalGrade = {
@@ -91,11 +92,13 @@ export function PracticeRoom({
   questions,
   initialResponses,
   initialNotes,
+  initialExplanations,
 }: Props) {
   const [phase, setPhase] = useState<Phase>("briefing");
   const [idx, setIdx] = useState(0);
   const [responses, setResponses] = useState(initialResponses);
   const [notes, setNotes] = useState(initialNotes);
+  const [explanations, setExplanations] = useState(initialExplanations);
   const [checked, setChecked] = useState<Record<string, LocalGrade>>({});
   const [showNotes, setShowNotes] = useState(false);
   const [soundOn, setSoundOn] = useState(true);
@@ -166,10 +169,10 @@ export function PracticeRoom({
   // --- Debounced autosave -----------------------------------------------------
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const scheduleSave = useCallback(
-    (questionId: string, response: string, note: string | null) => {
+    (questionId: string, response: string, note: string | null, explanation: string | null) => {
       if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
       saveTimeoutRef.current = setTimeout(() => {
-        saveAnswer(attempt.id, questionId, response, note);
+        saveAnswer(attempt.id, questionId, response, note, explanation);
       }, 600);
     },
     [attempt.id]
@@ -177,23 +180,32 @@ export function PracticeRoom({
 
   function setResponse(qid: string, val: string) {
     setResponses((prev) => ({ ...prev, [qid]: val }));
-    scheduleSave(qid, val, notes[qid] ?? null);
+    scheduleSave(qid, val, notes[qid] ?? null, explanations[qid] ?? null);
   }
   function setNote(qid: string, val: string) {
     setNotes((prev) => ({ ...prev, [qid]: val }));
-    scheduleSave(qid, responses[qid] ?? "", val);
+    scheduleSave(qid, responses[qid] ?? "", val, explanations[qid] ?? null);
+  }
+  function setExplanation(qid: string, val: string) {
+    setExplanations((prev) => ({ ...prev, [qid]: val }));
+    scheduleSave(qid, responses[qid] ?? "", notes[qid] ?? null, val);
   }
 
   function onCheck() {
     if (!q) return;
     const response = responses[q.id] ?? "";
+    const explanation = explanations[q.id] ?? "";
     if (!response.trim()) {
       toast.error("Type an answer first.");
       return;
     }
+    if (!explanation.trim()) {
+      toast.error("Explain your thinking before you check.");
+      return;
+    }
     // Flush pending autosave immediately
     if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
-    saveAnswer(attempt.id, q.id, response, notes[q.id] ?? null);
+    saveAnswer(attempt.id, q.id, response, notes[q.id] ?? null, explanation);
 
     const grade = gradeLocally(q, response);
     setChecked((prev) => ({ ...prev, [q.id]: grade }));
@@ -251,13 +263,13 @@ export function PracticeRoom({
           <div className="mt-6 space-y-3">
             <SectionHeading>How this works</SectionHeading>
             <Tip icon={<BookOpen className="h-4 w-4" />}>
-              Read each question, type your answer, then tap <b>Check answer</b>.
+              Read each question, type your answer, and <b>explain how you got it</b> in the &quot;Show your work&quot; box.
             </Tip>
             <Tip icon={<Check className="h-4 w-4" />}>
-              You&apos;ll see right away if you got it. If not, we&apos;ll show you the right answer.
+              Tap <b>Check answer</b>. You&apos;ll see right away if you got it. If not, we&apos;ll show you the right answer.
             </Tip>
             <Tip icon={<StickyNote className="h-4 w-4" />}>
-              Need to think? Open the <b>Notes</b> pad — nobody sees your scratch work.
+              Need to think? Open the <b>Notes</b> pad — that stays private.
             </Tip>
             <Tip icon={<Clock className="h-4 w-4" />}>
               A friendly chime plays when time is running low.
@@ -440,6 +452,31 @@ export function PracticeRoom({
                   className="text-base"
                 />
               )}
+            </div>
+
+            {/* Show your work — required on every question */}
+            <div className="mt-6">
+              <div className="mb-1.5 flex items-center gap-2">
+                <div className="flex h-6 w-6 items-center justify-center rounded-full bg-amber-100 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300">
+                  <BookOpen className="h-3.5 w-3.5" />
+                </div>
+                <label htmlFor={`explain-${q.id}`} className="text-sm font-medium">
+                  Show your work — explain your thinking step by step
+                </label>
+                <span className="text-xs text-muted-foreground">(required)</span>
+              </div>
+              <Textarea
+                id={`explain-${q.id}`}
+                rows={3}
+                value={explanations[q.id] ?? ""}
+                onChange={(e) => setExplanation(q.id, e.target.value)}
+                disabled={isChecked}
+                placeholder="Walk me through how you got your answer…"
+                className="text-base"
+              />
+              <p className="mt-1 text-xs text-muted-foreground">
+                Your teacher reads this to see how you&apos;re thinking.
+              </p>
             </div>
 
             <AnimatePresence>

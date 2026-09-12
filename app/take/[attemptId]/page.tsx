@@ -17,15 +17,17 @@ async function loadAttempt(attemptId: string) {
   const [{ data: test }, { data: questions }, { data: existingAnswers }] = await Promise.all([
     admin.from("tests").select("*").eq("id", attempt.test_id).maybeSingle(),
     admin.from("questions").select("*").eq("test_id", attempt.test_id).order("position"),
-    admin.from("answers").select("question_id, response, note").eq("attempt_id", attemptId),
+    admin.from("answers").select("question_id, response, note, explanation").eq("attempt_id", attemptId),
   ]);
   if (!test || !questions) return null;
 
   const initialResponses: Record<string, string> = {};
   const initialNotes: Record<string, string> = {};
+  const initialExplanations: Record<string, string> = {};
   for (const a of existingAnswers ?? []) {
     if (a.response) initialResponses[a.question_id] = a.response as string;
     if (a.note) initialNotes[a.question_id] = a.note;
+    if (a.explanation) initialExplanations[a.question_id] = a.explanation as string;
   }
 
   return {
@@ -34,6 +36,7 @@ async function loadAttempt(attemptId: string) {
     questions: questions as DbQuestion[],
     initialResponses,
     initialNotes,
+    initialExplanations,
   };
 }
 

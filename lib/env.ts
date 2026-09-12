@@ -24,6 +24,9 @@ const schema = z.object({
   OLLAMA_MODEL_SMALL: blankAsUndefined(z.string().default("llama3.2:latest")),
 
   NEXT_PUBLIC_APP_URL: blankAsUndefined(z.string().default("http://localhost:3000")),
+
+  RESEND_API_KEY: blankAsUndefined(z.string().default("")),
+  RESEND_FROM: blankAsUndefined(z.string().default("LearnWithMe <onboarding@resend.dev>")),
 });
 
 export const env = schema.parse({
@@ -38,6 +41,8 @@ export const env = schema.parse({
   OLLAMA_MODEL_LARGE: process.env.OLLAMA_MODEL_LARGE,
   OLLAMA_MODEL_SMALL: process.env.OLLAMA_MODEL_SMALL,
   NEXT_PUBLIC_APP_URL: process.env.NEXT_PUBLIC_APP_URL,
+  RESEND_API_KEY: process.env.RESEND_API_KEY,
+  RESEND_FROM: process.env.RESEND_FROM,
 });
 
 export type Env = typeof env;

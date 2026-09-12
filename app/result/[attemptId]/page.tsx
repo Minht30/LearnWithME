@@ -188,6 +188,14 @@ function ReviewCard({
                 {response.trim() || <span className="italic text-muted-foreground">(no answer)</span>}
               </div>
             </div>
+            {a?.explanation && (
+              <div>
+                <span className="text-xs text-muted-foreground">Your thinking</span>
+                <div className="mt-0.5 rounded border bg-background/60 px-2.5 py-1 whitespace-pre-wrap">
+                  {a.explanation}
+                </div>
+              </div>
+            )}
             {!correct && (
               <div>
                 <span className="text-xs text-muted-foreground">Correct answer</span>
