@@ -1,16 +1,31 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Fredoka, Inter, JetBrains_Mono, Comic_Neue } from "next/font/google";
 import { Toaster } from "@/components/ui/sonner";
+import { ThemeInit } from "@/components/ui/theme-init";
+import { IdleParticles } from "@/components/ui/idle-particles";
 import "./globals.css";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
+const display = Fredoka({
+  variable: "--font-display",
+  subsets: ["latin"],
+  weight: ["400", "500", "600", "700"],
+});
+
+const sans = Inter({
+  variable: "--font-sans",
   subsets: ["latin"],
 });
 
-const geistMono = Geist_Mono({
+const mono = JetBrains_Mono({
   variable: "--font-geist-mono",
   subsets: ["latin"],
+});
+
+// Dyslexia-friendly alternative — enabled by data-font="dyslexic" on <html>
+const dyslexic = Comic_Neue({
+  variable: "--font-dyslexic",
+  subsets: ["latin"],
+  weight: ["400", "700"],
 });
 
 export const metadata: Metadata = {
@@ -23,9 +38,12 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html
       lang="en"
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      className={`${display.variable} ${sans.variable} ${mono.variable} ${dyslexic.variable} h-full antialiased`}
+      suppressHydrationWarning
     >
       <body className="min-h-full flex flex-col">
+        <ThemeInit />
+        <IdleParticles />
         {children}
         <Toaster richColors position="top-center" />
       </body>

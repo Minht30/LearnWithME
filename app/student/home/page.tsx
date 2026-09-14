@@ -7,6 +7,8 @@ import { startAttemptForStudent } from "@/app/actions/student-auth";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { GraduationCap, LogOut, Clock, CheckCircle2, PlayCircle, Sparkles } from "lucide-react";
+import { AppBrand, AppHeaderControls } from "@/components/ui/app-header";
+import { Mascot } from "@/components/ui/mascot";
 
 export const dynamic = "force-dynamic";
 
@@ -42,48 +44,47 @@ export default async function StudentHomePage() {
   const { student, cls, classTests, attemptByTest } = await loadAssignedTests();
 
   return (
-    <div className="min-h-screen bg-amber-50/40 dark:bg-neutral-950">
-      <header className="border-b bg-background/80">
-        <div className="mx-auto flex max-w-4xl items-center justify-between px-6 py-4">
+    <div className="min-h-screen">
+      <header className="sticky top-0 z-20 border-b border-border/60 bg-background/70 backdrop-blur">
+        <div className="mx-auto flex max-w-5xl items-center justify-between px-6 py-3">
+          <AppBrand />
           <div className="flex items-center gap-3">
-            <div className="flex h-9 w-9 items-center justify-center rounded-full bg-amber-100 text-amber-800 text-sm font-semibold dark:bg-amber-950 dark:text-amber-300">
-              {student.display_name.split(" ").map((n: string) => n[0]).slice(0, 2).join("").toUpperCase()}
-            </div>
-            <div>
-              <p className="text-sm font-semibold">Hi, {student.display_name.split(" ")[0]}!</p>
-              <p className="text-xs text-muted-foreground">
-                {cls?.name} · Grade {cls?.grade}
-              </p>
-            </div>
+            <AppHeaderControls />
+            <form action={signOutStudent}>
+              <button
+                type="submit"
+                className="flex items-center gap-1.5 rounded-full border bg-background px-2.5 py-1 text-xs text-muted-foreground hover:text-foreground"
+              >
+                <LogOut className="h-3.5 w-3.5" /> Sign out
+              </button>
+            </form>
           </div>
-          <form action={signOutStudent}>
-            <button
-              type="submit"
-              className="flex items-center gap-1.5 rounded-md px-2 py-1.5 text-xs text-muted-foreground hover:bg-muted hover:text-foreground"
-            >
-              <LogOut className="h-3.5 w-3.5" /> Sign out
-            </button>
-          </form>
         </div>
       </header>
 
-      <main className="mx-auto max-w-4xl px-6 py-8">
-        <div className="mb-6">
-          <h1 className="text-3xl font-bold tracking-tight">Your tests</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            {classTests.length === 0
-              ? "Your teacher hasn't shared a test yet. Check back later."
-              : "Tap a test to start or resume."}
-          </p>
+      <main className="mx-auto max-w-5xl px-6 py-8">
+        <div className="mb-8 flex items-center gap-4">
+          <Mascot mood="wave" size={72} />
+          <div>
+            <h1 className="font-display text-4xl font-bold tracking-tight">
+              Hi, {student.display_name.split(" ")[0]}!
+            </h1>
+            <p className="mt-1 text-sm text-muted-foreground">
+              {cls?.name} · Grade {cls?.grade} —{" "}
+              {classTests.length === 0
+                ? "your teacher hasn't shared a test yet."
+                : "tap a test to start or resume."}
+            </p>
+          </div>
         </div>
 
         {classTests.length === 0 ? (
-          <Card className="p-10 text-center">
+          <Card className="lwm-card p-10 text-center">
             <GraduationCap className="mx-auto mb-3 h-8 w-8 text-muted-foreground" />
-            <p className="text-muted-foreground">Nothing assigned yet.</p>
+            <p className="text-muted-foreground">Nothing assigned yet. Check back soon!</p>
           </Card>
         ) : (
-          <div className="grid gap-3 sm:grid-cols-2">
+          <div className="grid gap-4 sm:grid-cols-2">
             {classTests.map((ct) => {
               const test = ct.tests && !Array.isArray(ct.tests) ? (ct.tests as {
                 id: string;
@@ -97,13 +98,13 @@ export default async function StudentHomePage() {
               const submitted = !!attempt?.submitted_at;
               const inProgress = !!attempt && !submitted;
               return (
-                <Card key={ct.test_id} className="p-5 transition-all hover:shadow-sm">
+                <Card key={ct.test_id} className="lwm-card p-5">
                   <div className="mb-3 flex items-start justify-between gap-2">
                     <div>
-                      <div className="text-xs text-muted-foreground">
+                      <div className="text-xs uppercase tracking-wide font-semibold text-muted-foreground">
                         {test.subject} · Grade {test.grade}
                       </div>
-                      <h3 className="mt-0.5 font-semibold">{test.title}</h3>
+                      <h3 className="mt-0.5 font-display text-xl font-bold">{test.title}</h3>
                     </div>
                     <StatusPill status={submitted ? "submitted" : inProgress ? "in-progress" : "new"} />
                   </div>
@@ -112,13 +113,13 @@ export default async function StudentHomePage() {
                   </div>
                   {submitted && attempt ? (
                     <Link href={`/result/${attempt.id}`} className="w-full">
-                      <Button variant="outline" className="w-full">
+                      <Button variant="outline" className="w-full rounded-full">
                         <CheckCircle2 className="mr-1 h-4 w-4" /> See your result
                       </Button>
                     </Link>
                   ) : inProgress && attempt ? (
                     <Link href={`/take/${attempt.id}`} className="w-full">
-                      <Button className="w-full">
+                      <Button variant="candy" className="w-full rounded-full h-11">
                         <PlayCircle className="mr-1 h-4 w-4" /> Continue
                       </Button>
                     </Link>
@@ -127,7 +128,7 @@ export default async function StudentHomePage() {
                       "use server";
                       await startAttemptForStudent(test.id);
                     }}>
-                      <Button type="submit" className="w-full">
+                      <Button type="submit" variant="candy" className="w-full rounded-full h-11">
                         <Sparkles className="mr-1 h-4 w-4" /> Start
                       </Button>
                     </form>
@@ -144,10 +145,10 @@ export default async function StudentHomePage() {
 
 function StatusPill({ status }: { status: "new" | "in-progress" | "submitted" }) {
   const styles = {
-    new: "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300",
-    "in-progress": "bg-sky-100 text-sky-800 dark:bg-sky-950 dark:text-sky-300",
-    submitted: "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300",
+    new: "bg-[color-mix(in_oklab,var(--brand)_18%,transparent)] text-[color-mix(in_oklab,var(--brand)_90%,black)] dark:text-[var(--brand)]",
+    "in-progress": "bg-[color-mix(in_oklab,var(--accent)_18%,transparent)] text-[color-mix(in_oklab,var(--accent)_80%,black)] dark:text-[var(--accent)]",
+    submitted: "bg-[color-mix(in_oklab,var(--success)_20%,transparent)] text-[color-mix(in_oklab,var(--success)_80%,black)] dark:text-[var(--success)]",
   }[status];
   const label = { new: "New", "in-progress": "In progress", submitted: "Done" }[status];
-  return <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${styles}`}>{label}</span>;
+  return <span className={`rounded-full px-2.5 py-0.5 text-xs font-bold ${styles}`}>{label}</span>;
 }
