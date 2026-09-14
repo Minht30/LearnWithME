@@ -6,13 +6,13 @@ import { motion } from "framer-motion";
 import { Card } from "@/components/ui/card";
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { Check, Sparkles, FileText } from "lucide-react";
+import { Check, Sparkles, FileText, CheckCircle2, RotateCcw, MessageSquare, Clock } from "lucide-react";
 import { Confetti } from "@/components/ui/confetti";
 import { Mascot } from "@/components/ui/mascot";
 import { AppBrand, AppHeaderControls } from "@/components/ui/app-header";
 import { playSubmit } from "@/lib/sounds";
 import { useSoundPref } from "@/lib/theme";
-import type { DbAnswer, DbQuestion, DbStudent } from "@/lib/db/types";
+import type { DbAnswer, DbAttempt, DbQuestion, DbStudent } from "@/lib/db/types";
 
 type EnrichedAnswer = DbAnswer & { workUrl?: string };
 
@@ -34,8 +34,9 @@ function useCountUp(target: number, duration = 900): number {
 }
 
 export function ResultView({
-  questions, answers, student, percent, correctCount,
+  attempt, questions, answers, student, percent, correctCount,
 }: {
+  attempt: DbAttempt;
   questions: DbQuestion[];
   answers: EnrichedAnswer[];
   student: DbStudent | null;
@@ -66,6 +67,9 @@ export function ResultView({
   return (
     <div className="min-h-screen flex flex-col">
       {fire !== null && <Confetti fire={fire} />}
+      <a href="#main" className="sr-only focus:not-sr-only focus:absolute focus:top-3 focus:left-3 focus:z-50 focus:rounded-md focus:bg-primary focus:px-3 focus:py-1.5 focus:text-primary-foreground">
+        Skip to results
+      </a>
       <header className="sticky top-0 z-20 border-b border-border/60 bg-background/70 backdrop-blur">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3">
           <AppBrand />
@@ -73,7 +77,9 @@ export function ResultView({
         </div>
       </header>
 
-      <main className="mx-auto w-full max-w-3xl flex-1 px-4 py-10">
+      <main id="main" className="mx-auto w-full max-w-3xl flex-1 px-4 py-10">
+        <TeacherStatusBanner attempt={attempt} />
+
         <header className="mb-8 text-center">
           <div className="mx-auto mb-2 inline-flex items-center gap-2 rounded-full bg-[color-mix(in_oklab,var(--brand)_15%,transparent)] px-3 py-1 text-xs font-semibold text-[color-mix(in_oklab,var(--brand)_90%,black)] dark:text-[var(--brand)]">
             <Sparkles className="h-3.5 w-3.5" /> All done!
@@ -239,10 +245,67 @@ function ReviewCard({
               {a?.feedback && (
                 <p className="text-sm text-muted-foreground italic">{a.feedback}</p>
               )}
+              {a?.teacher_feedback && (
+                <div className="mt-2 rounded-xl border-2 border-[var(--accent)]/40 bg-[color-mix(in_oklab,var(--accent)_10%,transparent)] p-3">
+                  <div className="mb-1 flex items-center gap-1.5 text-xs uppercase tracking-wide font-semibold text-[color-mix(in_oklab,var(--accent)_80%,black)] dark:text-[var(--accent)]">
+                    <MessageSquare className="h-3 w-3" /> From your teacher
+                  </div>
+                  <p className="text-sm">{a.teacher_feedback}</p>
+                </div>
+              )}
             </div>
           </div>
         </div>
       </Card>
     </motion.div>
   );
+}
+
+function TeacherStatusBanner({ attempt }: { attempt: DbAttempt }) {
+  if (attempt.status === "approved") {
+    return (
+      <div className="mb-6 rounded-2xl border-2 border-[var(--success)] bg-[color-mix(in_oklab,var(--success)_12%,transparent)] p-4">
+        <div className="flex items-start gap-3">
+          <CheckCircle2 className="h-6 w-6 shrink-0 text-[var(--success)]" />
+          <div className="min-w-0 flex-1">
+            <p className="font-display text-lg font-bold">Your teacher approved your work! 🎉</p>
+            {attempt.teacher_note && (
+              <p className="mt-1 text-sm">{attempt.teacher_note}</p>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+  if (attempt.status === "needs_redo") {
+    return (
+      <div className="mb-6 rounded-2xl border-2 border-[var(--warning)] bg-[color-mix(in_oklab,var(--warning)_12%,transparent)] p-4">
+        <div className="flex items-start gap-3">
+          <RotateCcw className="h-6 w-6 shrink-0 text-[var(--warning)]" />
+          <div className="min-w-0 flex-1">
+            <p className="font-display text-lg font-bold">Give it another try</p>
+            {attempt.teacher_note && (
+              <p className="mt-1 text-sm">{attempt.teacher_note}</p>
+            )}
+            <p className="mt-2 text-xs text-muted-foreground">
+              Open the test from your home page to redo it.
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+  if (attempt.status === "submitted") {
+    return (
+      <div className="mb-6 rounded-2xl border border-border bg-muted/40 p-4">
+        <div className="flex items-center gap-3">
+          <Clock className="h-5 w-5 text-muted-foreground" />
+          <p className="text-sm">
+            You&apos;ve submitted this. Your teacher will look at it and reply.
+          </p>
+        </div>
+      </div>
+    );
+  }
+  return null;
 }

@@ -1,15 +1,18 @@
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { requireTeacherId } from "@/lib/auth/session";
 import { signExplanationUrl } from "@/app/actions/upload-explanation";
+import { ReviewClient } from "./review-client";
+import type { DbAttempt, DbAnswer, DbQuestion, DbTest, DbStudent } from "@/lib/db/types";
 
 export const dynamic = "force-dynamic";
-import type { DbAttempt, DbAnswer, DbQuestion, DbTest, DbStudent } from "@/lib/db/types";
-import { ResultView } from "./result-view";
 
 type EnrichedAnswer = DbAnswer & { workUrl?: string };
 
-async function loadResult(attemptId: string) {
+async function loadReviewData(attemptId: string) {
+  const teacherId = await requireTeacherId();
   const admin = createAdminClient();
+
   const { data: attempt } = await admin
     .from("attempts")
     .select("*")
@@ -24,12 +27,12 @@ async function loadResult(attemptId: string) {
     admin.from("students").select("*").eq("id", attempt.student_id).maybeSingle(),
   ]);
   if (!test || !questions) return null;
+  if ((test as DbTest).teacher_id !== teacherId) return null;
 
   const enriched: EnrichedAnswer[] = await Promise.all(
     ((answers ?? []) as DbAnswer[]).map(async (a) => {
-      const path = (a as unknown as { explanation_file_path?: string | null }).explanation_file_path;
-      if (path) {
-        const url = await signExplanationUrl(path, 60 * 60 * 24);
+      if (a.explanation_file_path) {
+        const url = await signExplanationUrl(a.explanation_file_path, 60 * 60 * 24);
         return { ...a, workUrl: url ?? undefined };
       }
       return a as EnrichedAnswer;
@@ -41,33 +44,17 @@ async function loadResult(attemptId: string) {
     test: test as DbTest,
     questions: questions as DbQuestion[],
     answers: enriched,
-    student: (student ?? null) as DbStudent | null,
+    student: student as DbStudent,
   };
 }
 
-export default async function ResultPage({ params }: PageProps<"/result/[attemptId]">) {
+export default async function ReviewPage({ params }: { params: Promise<{ attemptId: string }> }) {
   const { attemptId } = await params;
-  const data = await loadResult(attemptId);
+  const data = await loadReviewData(attemptId);
   if (!data) return notFound();
-  const { questions, answers, student } = data;
-
-  const answerMap = new Map(answers.map((a) => [a.question_id, a]));
-  const gradedTotal = questions.length;
-  const scoreSum = questions.reduce(
-    (acc, q) => acc + Number(answerMap.get(q.id)?.score ?? 0),
-    0
-  );
-  const percent = Math.round((scoreSum / gradedTotal) * 100);
-  const correctCount = questions.filter((q) => answerMap.get(q.id)?.is_correct).length;
-
-  return (
-    <ResultView
-      attempt={data.attempt}
-      questions={questions}
-      answers={answers}
-      student={student}
-      percent={percent}
-      correctCount={correctCount}
-    />
-  );
+  if (data.attempt.status === "in_progress") {
+    // Student still working — nothing to review yet.
+    redirect("/dashboard/inbox");
+  }
+  return <ReviewClient {...data} />;
 }

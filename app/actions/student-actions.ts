@@ -240,10 +240,39 @@ export async function submitAttempt(attemptId: string) {
     .update({
       submitted_at: new Date().toISOString(),
       duration_used_sec: duration,
+      status: "submitted",
     })
     .eq("id", attemptId);
 
-  // Fire-and-forget email to the teacher who owns the test
+  // Notify the teacher (in-app) and email — both best-effort.
+  try {
+    const { data: full } = await admin
+      .from("attempts")
+      .select("id, student_id, tests!inner(id, teacher_id, title)")
+      .eq("id", attemptId)
+      .maybeSingle();
+    const t = (full as unknown as {
+      tests: { teacher_id: string; title: string } | null;
+      student_id: string;
+    } | null);
+    if (t?.tests?.teacher_id) {
+      const { data: stu } = await admin
+        .from("students")
+        .select("display_name")
+        .eq("id", t.student_id)
+        .maybeSingle();
+      await admin.from("notifications").insert({
+        teacher_id: t.tests.teacher_id,
+        kind: "attempt_submitted",
+        payload: {
+          attempt_id: attemptId,
+          student_id: t.student_id,
+          display_name: stu?.display_name ?? "A student",
+          test_title: t.tests.title,
+        },
+      });
+    }
+  } catch { /* ignore */ }
   try {
     await emailResultsToTeacher(attemptId);
   } catch {

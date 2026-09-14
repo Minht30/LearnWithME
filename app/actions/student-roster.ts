@@ -51,6 +51,7 @@ export async function addStudent(input: {
     display_name: displayName,
     username,
     password_hash: hash,
+    password_plain: password,
     anon_token: crypto.randomUUID(),
   });
   if (error) {
@@ -86,9 +87,10 @@ export async function resetStudentPassword(
   const hash = await bcrypt.hash(newPassword, 10);
   const { error } = await admin
     .from("students")
-    .update({ password_hash: hash })
+    .update({ password_hash: hash, password_plain: newPassword })
     .eq("id", studentId)
     .eq("class_id", classId);
   if (error) return { ok: false, error: error.message };
+  revalidatePath(`/dashboard/classes/${classId}`);
   return { ok: true };
 }

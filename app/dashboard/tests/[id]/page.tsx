@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { requireTeacherId } from "@/lib/auth/session";
 
 export const dynamic = "force-dynamic";
 import type { DbTest, DbQuestion } from "@/lib/db/types";
@@ -10,15 +11,36 @@ import { cn } from "@/lib/utils";
 import { Download, ArrowLeft, Clock } from "lucide-react";
 import { QuestionList } from "./question-list";
 import { ShareCard } from "./share-card";
+import { AssignCard } from "./assign-card";
 
 async function loadTest(id: string) {
+  const teacherId = await requireTeacherId();
   const admin = createAdminClient();
-  const [{ data: test }, { data: questions }, { data: classTest }] = await Promise.all([
+  const [{ data: test }, { data: questions }, { data: classTest }, { data: classes }, { data: assignments }] = await Promise.all([
     admin.from("tests").select("*").eq("id", id).maybeSingle(),
     admin.from("questions").select("*").eq("test_id", id).order("position"),
     admin.from("class_tests").select("class_id, classes(id, name, join_code)").eq("test_id", id).maybeSingle(),
+    admin.from("classes").select("id, name").eq("teacher_id", teacherId),
+    admin.from("assignments").select("student_id, due_at, priority").eq("test_id", id),
   ]);
   if (!test) return null;
+
+  const classIds = (classes ?? []).map((c) => c.id);
+  const { data: rosterRaw } = classIds.length
+    ? await admin
+        .from("students")
+        .select("id, display_name, username, class_id")
+        .in("class_id", classIds)
+        .order("display_name")
+    : { data: [] };
+  const classNameById = new Map((classes ?? []).map((c) => [c.id, c.name]));
+  const students = (rosterRaw ?? []).map((s) => ({
+    id: s.id,
+    display_name: s.display_name,
+    username: s.username,
+    class_name: classNameById.get(s.class_id) ?? "",
+  }));
+
   return {
     test: test as DbTest,
     questions: (questions ?? []) as DbQuestion[],
@@ -26,6 +48,8 @@ async function loadTest(id: string) {
       classTest?.classes && !Array.isArray(classTest.classes)
         ? (classTest.classes as { join_code: string }).join_code
         : null,
+    students,
+    assignments: (assignments ?? []) as { student_id: string; due_at: string | null; priority: number }[],
   };
 }
 
@@ -33,7 +57,7 @@ export default async function TestDetailPage({ params }: PageProps<"/dashboard/t
   const { id } = await params;
   const data = await loadTest(id);
   if (!data) return notFound();
-  const { test, questions, joinCode } = data;
+  const { test, questions, joinCode, students, assignments } = data;
 
   return (
     <div>
@@ -55,10 +79,10 @@ export default async function TestDetailPage({ params }: PageProps<"/dashboard/t
               <Clock className="h-3 w-3" />
               {test.duration_min} min
             </span>
-            <span>·</span>
+            <span aria-hidden>·</span>
             <span>{questions.length} questions</span>
           </div>
-          <h1 className="mt-2 text-3xl font-semibold tracking-tight">{test.title}</h1>
+          <h1 className="mt-2 font-display text-3xl font-bold tracking-tight">{test.title}</h1>
           {test.source_prompt && (
             <p className="mt-2 text-sm text-muted-foreground italic">&ldquo;{test.source_prompt}&rdquo;</p>
           )}
@@ -66,7 +90,7 @@ export default async function TestDetailPage({ params }: PageProps<"/dashboard/t
         <div className="flex gap-2">
           <a
             href={`/api/tests/${test.id}/pdf?withKey=0`}
-            className={cn(buttonVariants({ variant: "outline" }))}
+            className={cn(buttonVariants({ variant: "outline" }), "rounded-full")}
             target="_blank"
             rel="noopener noreferrer"
           >
@@ -74,7 +98,7 @@ export default async function TestDetailPage({ params }: PageProps<"/dashboard/t
           </a>
           <a
             href={`/api/tests/${test.id}/pdf?withKey=1`}
-            className={cn(buttonVariants())}
+            className={cn(buttonVariants({ variant: "candy" }), "rounded-full h-9 px-4")}
             target="_blank"
             rel="noopener noreferrer"
           >
@@ -86,7 +110,7 @@ export default async function TestDetailPage({ params }: PageProps<"/dashboard/t
       <div className="grid gap-6 lg:grid-cols-[1fr_320px]">
         <div>
           {questions.length === 0 ? (
-            <Card className="p-10 text-center text-muted-foreground">
+            <Card className="lwm-card p-10 text-center text-muted-foreground">
               No questions on this test yet.
             </Card>
           ) : (
@@ -94,6 +118,7 @@ export default async function TestDetailPage({ params }: PageProps<"/dashboard/t
           )}
         </div>
         <div className="space-y-4">
+          <AssignCard testId={test.id} students={students} assignments={assignments} />
           <ShareCard
             testId={test.id}
             initialJoinCode={joinCode}

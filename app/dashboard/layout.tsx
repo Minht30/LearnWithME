@@ -1,5 +1,6 @@
 import Link from "next/link";
-import { Plus, GraduationCap, Home, LogOut } from "lucide-react";
+import { Plus, GraduationCap, Home, LogOut, Inbox } from "lucide-react";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { requireTeacher } from "@/lib/auth/session";
 import { signOutTeacher } from "@/app/actions/auth-actions";
 import { AppBrand, AppHeaderControls } from "@/components/ui/app-header";
@@ -8,6 +9,20 @@ export default async function DashboardLayout({
   children,
 }: LayoutProps<"/dashboard">) {
   const teacher = await requireTeacher();
+  const admin = createAdminClient();
+  const [{ count: pendingReview }, { count: unread }] = await Promise.all([
+    admin
+      .from("attempts")
+      .select("id, tests!inner(teacher_id)", { count: "exact", head: true })
+      .eq("status", "submitted")
+      .eq("tests.teacher_id", teacher.id),
+    admin
+      .from("notifications")
+      .select("id", { count: "exact", head: true })
+      .eq("teacher_id", teacher.id)
+      .is("read_at", null),
+  ]);
+  const inboxCount = (pendingReview ?? 0) + (unread ?? 0);
   const initials = teacher.name
     .split(" ")
     .map((n) => n[0])
@@ -29,8 +44,9 @@ export default async function DashboardLayout({
           <div className="mb-6 px-2">
             <AppBrand />
           </div>
-          <nav className="flex flex-col gap-1 text-sm">
+          <nav className="flex flex-col gap-1 text-sm" aria-label="Main">
             <NavLink href="/dashboard" icon={<Home className="h-4 w-4" />} label="Tests" />
+            <NavLink href="/dashboard/inbox" icon={<Inbox className="h-4 w-4" />} label="Inbox" badge={inboxCount} />
             <NavLink href="/dashboard/new" icon={<Plus className="h-4 w-4" />} label="New test" />
             <NavLink href="/dashboard/classes" icon={<GraduationCap className="h-4 w-4" />} label="Classes" />
           </nav>
@@ -64,14 +80,22 @@ export default async function DashboardLayout({
   );
 }
 
-function NavLink({ href, icon, label }: { href: string; icon: React.ReactNode; label: string }) {
+function NavLink({ href, icon, label, badge }: { href: string; icon: React.ReactNode; label: string; badge?: number }) {
   return (
     <Link
       href={href}
       className="flex items-center gap-2 rounded-lg px-3 py-2 text-muted-foreground transition-colors hover:bg-[color-mix(in_oklab,var(--brand)_10%,transparent)] hover:text-foreground"
     >
       {icon}
-      {label}
+      <span className="flex-1">{label}</span>
+      {badge && badge > 0 ? (
+        <span
+          className="rounded-full bg-[var(--brand)] px-1.5 py-0.5 text-[10px] font-bold text-white min-w-[18px] text-center"
+          aria-label={`${badge} unread`}
+        >
+          {badge > 99 ? "99+" : badge}
+        </span>
+      ) : null}
     </Link>
   );
 }

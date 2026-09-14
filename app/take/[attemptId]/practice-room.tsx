@@ -352,6 +352,9 @@ export function PracticeRoom({
 
   return (
     <div className="min-h-screen flex flex-col">
+      <a href="#question" className="sr-only focus:not-sr-only focus:absolute focus:top-3 focus:left-3 focus:z-50 focus:rounded-md focus:bg-primary focus:px-3 focus:py-1.5 focus:text-primary-foreground">
+        Skip to current question
+      </a>
       <header className="sticky top-0 z-20 border-b border-border/60 bg-background/70 backdrop-blur zen-hide">
         <div className="mx-auto flex max-w-5xl items-center justify-between gap-3 px-4 py-3">
           <div className="flex items-center gap-3 min-w-0">
@@ -371,12 +374,15 @@ export function PracticeRoom({
               {correctCount} of {answeredCount || 0}
             </div>
             <div
+              role="timer"
+              aria-live={timerCritical ? "assertive" : "polite"}
+              aria-label={`Time remaining: ${remMin} minutes ${remSec} seconds`}
               className={`rounded-full px-3 py-1 font-mono text-sm tabular-nums transition-colors ${
                 timerCritical
                   ? "bg-[var(--danger)] text-white lwm-heartbeat shadow-lg"
                   : timerHot
                   ? "bg-[color-mix(in_oklab,var(--warning)_25%,transparent)] text-[color-mix(in_oklab,var(--warning)_90%,black)] dark:text-[var(--warning)]"
-                  : "bg-muted"
+                  : "bg-muted text-foreground"
               }`}
             >
               {String(remMin).padStart(2, "0")}:{String(remSec).padStart(2, "0")}
@@ -384,12 +390,19 @@ export function PracticeRoom({
             <AppHeaderControls />
           </div>
         </div>
-        <div className="lwm-progress h-1.5 rounded-none">
+        <div
+          className="lwm-progress h-1.5 rounded-none"
+          role="progressbar"
+          aria-valuenow={Math.round(percentDone)}
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-label={`Test progress: ${answeredCount} of ${total} answered`}
+        >
           <div className="fill" style={{ width: `${percentDone}%` }} />
         </div>
       </header>
 
-      <main className="mx-auto w-full max-w-3xl flex-1 px-4 py-8 relative">
+      <main id="question" className="mx-auto w-full max-w-3xl flex-1 px-4 py-8 relative">
         <div className="mb-3 flex items-center justify-between text-sm text-muted-foreground zen-hide">
           <span>
             Question <span className="font-semibold text-foreground">{idx + 1}</span> of {total}
@@ -421,7 +434,7 @@ export function PracticeRoom({
 
             <div className="mt-6">
               {q.type === "mcq" && q.choices ? (
-                <div className="grid gap-2.5 sm:grid-cols-2">
+                <div className="grid gap-2.5 sm:grid-cols-2" role="radiogroup" aria-label="Answer choices">
                   {q.choices.map((c, ci) => {
                     const selected = responses[q.id] === String(c);
                     const isCorrectChoice = grade && String(c) === grade.correctAnswer;
@@ -441,6 +454,9 @@ export function PracticeRoom({
                     return (
                       <motion.button
                         key={ci}
+                        type="button"
+                        role="radio"
+                        aria-checked={selected}
                         whileTap={{ scale: 0.96 }}
                         whileHover={{ y: -2 }}
                         disabled={isChecked}
@@ -514,6 +530,8 @@ export function PracticeRoom({
                   animate={{ opacity: 1, y: 0, scale: 1 }}
                   exit={{ opacity: 0 }}
                   transition={{ duration: 0.22, type: "spring", stiffness: 300, damping: 22 }}
+                  role="status"
+                  aria-live="polite"
                   className={`mt-6 rounded-2xl p-4 sm:p-5 border-2 ${
                     grade.awaitingTeacher
                       ? "bg-[color-mix(in_oklab,var(--accent)_12%,transparent)] border-[color-mix(in_oklab,var(--accent)_35%,transparent)]"

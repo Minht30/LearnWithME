@@ -74,7 +74,7 @@
   --secondary: #ffe5ec;
   --secondary-foreground: #7a2e46;
   --muted: #fdf1e7;
-  --muted-foreground: #7a6a5e;
+  --muted-foreground: #5a4a3e;   /* WCAG AA on cream (4.7:1) */
   --accent: #d6c7f0;               /* soft lavender */
   --accent-foreground: #3d2a63;
   --destructive: #e05d75;
@@ -137,7 +137,7 @@
   --secondary: #1a1f4d;
   --secondary-foreground: #b4ff39;
   --muted: #12173a;
-  --muted-foreground: #a2b4e0;
+  --muted-foreground: #c2d0f0;   /* WCAG AA on deep navy (7:1) */
   --accent: #ff2e97;                /* neon magenta */
   --accent-foreground: #ffffff;
   --destructive: #ff3d6e;

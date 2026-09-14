@@ -6,13 +6,18 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
-import { addStudent, removeStudent } from "@/app/actions/student-roster";
-import { UserPlus, Trash2, KeyRound } from "lucide-react";
+import { addStudent, removeStudent, resetStudentPassword } from "@/app/actions/student-roster";
+import {
+  UserPlus, Trash2, KeyRound, Eye, EyeOff, Copy, RefreshCw, Sparkles,
+} from "lucide-react";
 
 type Student = {
   id: string;
   display_name: string;
   username: string | null;
+  password_plain: string | null;
+  self_signup?: boolean;
+  last_seen_at?: string | null;
   created_at: string;
 };
 
@@ -23,27 +28,32 @@ function randomPassword(len = 8) {
   return out;
 }
 
+async function copy(text: string) {
+  try { await navigator.clipboard.writeText(text); toast.success("Copied."); }
+  catch { toast.error("Couldn't copy."); }
+}
+
 export function RosterEditor({
-  classId,
-  students,
-  joinCode,
-}: {
-  classId: string;
-  students: Student[];
-  joinCode: string;
-}) {
+  classId, students, joinCode,
+}: { classId: string; students: Student[]; joinCode: string }) {
   const [pending, startTransition] = useTransition();
   const [name, setName] = useState("");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState(() => randomPassword());
-  const [lastCredential, setLastCredential] = useState<{ name: string; username: string; password: string } | null>(null);
+  const [reveal, setReveal] = useState<Record<string, boolean>>({});
+  const [resetForId, setResetForId] = useState<string | null>(null);
+  const [resetPw, setResetPw] = useState("");
 
   function onAdd(e: React.FormEvent) {
     e.preventDefault();
     startTransition(async () => {
-      const res = await addStudent({ classId, displayName: name.trim(), username: username.trim(), password });
+      const res = await addStudent({
+        classId,
+        displayName: name.trim(),
+        username: username.trim(),
+        password,
+      });
       if (res.ok) {
-        setLastCredential({ name: name.trim(), username: username.trim(), password });
         toast.success(`${name} added.`);
         setName("");
         setUsername("");
@@ -63,13 +73,27 @@ export function RosterEditor({
     });
   }
 
+  function onReset(studentId: string) {
+    if (resetPw.length < 6) { toast.error("At least 6 characters."); return; }
+    startTransition(async () => {
+      const res = await resetStudentPassword(classId, studentId, resetPw);
+      if (res.ok) {
+        toast.success("Password reset.");
+        setResetForId(null);
+        setResetPw("");
+      } else {
+        toast.error(res.error);
+      }
+    });
+  }
+
   return (
     <div>
-      <h2 className="mb-3 text-lg font-semibold">Students</h2>
+      <h2 className="mb-3 font-display text-2xl font-bold">Students</h2>
 
-      <Card className="p-5 mb-5">
-        <p className="mb-3 text-sm font-medium">Add a student</p>
-        <form onSubmit={onAdd} className="grid gap-3 sm:grid-cols-4">
+      <Card className="lwm-card p-5 mb-5">
+        <p className="mb-3 text-sm font-semibold">Add a student</p>
+        <form onSubmit={onAdd} className="grid gap-3 sm:grid-cols-4" aria-label="Add student">
           <div>
             <Label htmlFor="s-name" className="mb-1 block text-xs">Full name</Label>
             <Input id="s-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Jane Doe" required />
@@ -94,57 +118,137 @@ export function RosterEditor({
             </div>
           </div>
           <div className="flex items-end">
-            <Button type="submit" className="w-full" disabled={pending}>
+            <Button type="submit" variant="candy" className="w-full rounded-full" disabled={pending}>
               <UserPlus className="mr-1 h-4 w-4" /> Add
             </Button>
           </div>
         </form>
-
-        {lastCredential && (
-          <div className="mt-4 rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm dark:bg-emerald-950/30 dark:border-emerald-800">
-            <p className="font-medium text-emerald-900 dark:text-emerald-200">Credentials for {lastCredential.name}</p>
-            <div className="mt-2 grid gap-1 font-mono text-xs">
-              <div>Class code: <span className="font-semibold">{joinCode}</span></div>
-              <div>Username: <span className="font-semibold">{lastCredential.username}</span></div>
-              <div>Password: <span className="font-semibold">{lastCredential.password}</span></div>
-            </div>
-            <p className="mt-2 text-xs text-emerald-800 dark:text-emerald-300">
-              Copy these now — the password is not shown again. Students sign in at <span className="font-mono">/student/login</span>.
-            </p>
-          </div>
-        )}
       </Card>
 
       {students.length === 0 ? (
-        <Card className="p-6 text-center text-sm text-muted-foreground">
-          No students yet. Add one above.
+        <Card className="lwm-card p-6 text-center text-sm text-muted-foreground">
+          No students yet. Share <span className="font-mono font-semibold text-foreground">{joinCode}</span> so they can self-sign-up, or add one above.
         </Card>
       ) : (
-        <Card>
-          <div className="divide-y">
-            {students.map((s) => (
-              <div key={s.id} className="flex items-center gap-3 px-4 py-3">
-                <div className="flex h-9 w-9 items-center justify-center rounded-full bg-amber-100 text-amber-800 text-xs font-semibold dark:bg-amber-950 dark:text-amber-300">
-                  {s.display_name.split(" ").map((n) => n[0]).slice(0, 2).join("").toUpperCase()}
-                </div>
-                <div className="min-w-0 flex-1">
-                  <p className="truncate font-medium">{s.display_name}</p>
-                  <p className="truncate text-xs text-muted-foreground font-mono">
-                    {s.username ? `@${s.username}` : "guest (no login)"}
-                  </p>
-                </div>
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  onClick={() => onDelete(s.id, s.display_name)}
-                  disabled={pending}
-                  aria-label="Remove student"
-                >
-                  <Trash2 className="h-4 w-4" />
-                </Button>
-              </div>
-            ))}
-          </div>
+        <Card className="lwm-card overflow-hidden">
+          <table className="w-full text-sm">
+            <caption className="sr-only">Roster with usernames and passwords for recovery.</caption>
+            <thead className="bg-muted/50 text-xs uppercase tracking-wide text-muted-foreground">
+              <tr>
+                <th scope="col" className="px-4 py-2 text-left">Student</th>
+                <th scope="col" className="px-4 py-2 text-left">Username</th>
+                <th scope="col" className="px-4 py-2 text-left">Password</th>
+                <th scope="col" className="px-4 py-2 text-left">Joined</th>
+                <th scope="col" className="px-4 py-2 text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y">
+              {students.map((s) => {
+                const shown = reveal[s.id];
+                return (
+                  <tr key={s.id}>
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-2">
+                        <div className="flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-br from-[var(--brand)] to-[var(--brand-2)] text-xs font-bold text-white">
+                          {s.display_name[0]?.toUpperCase()}
+                        </div>
+                        <span className="font-medium">{s.display_name}</span>
+                        {s.self_signup && (
+                          <span className="inline-flex items-center gap-0.5 rounded-full bg-[color-mix(in_oklab,var(--brand)_18%,transparent)] px-1.5 py-0.5 text-[10px] font-semibold text-[color-mix(in_oklab,var(--brand)_90%,black)] dark:text-[var(--brand)]" title="Self-signed up">
+                            <Sparkles className="h-2.5 w-2.5" /> new
+                          </span>
+                        )}
+                      </div>
+                    </td>
+                    <td className="px-4 py-3 font-mono text-xs">
+                      {s.username ? (
+                        <button
+                          onClick={() => copy(s.username!)}
+                          className="inline-flex items-center gap-1 hover:text-foreground"
+                          aria-label={`Copy username ${s.username}`}
+                        >
+                          @{s.username} <Copy className="h-3 w-3 opacity-50" />
+                        </button>
+                      ) : (
+                        <span className="text-muted-foreground italic">guest</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 font-mono text-xs">
+                      {s.password_plain ? (
+                        <span className="inline-flex items-center gap-1">
+                          <span aria-label={shown ? "Password visible" : "Password hidden"}>
+                            {shown ? s.password_plain : "•".repeat(Math.max(6, s.password_plain.length))}
+                          </span>
+                          <button
+                            onClick={() => setReveal((prev) => ({ ...prev, [s.id]: !prev[s.id] }))}
+                            aria-label={shown ? "Hide password" : "Show password"}
+                            className="inline-flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:text-foreground"
+                          >
+                            {shown ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                          </button>
+                          {shown && (
+                            <button
+                              onClick={() => copy(s.password_plain!)}
+                              aria-label="Copy password"
+                              className="inline-flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:text-foreground"
+                            >
+                              <Copy className="h-3.5 w-3.5" />
+                            </button>
+                          )}
+                        </span>
+                      ) : (
+                        <span className="text-muted-foreground italic">(hidden — reset to reveal)</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-xs text-muted-foreground">
+                      {new Date(s.created_at).toLocaleDateString(undefined, { month: "short", day: "numeric" })}
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      <div className="inline-flex items-center gap-1">
+                        {resetForId === s.id ? (
+                          <>
+                            <Input
+                              value={resetPw}
+                              onChange={(e) => setResetPw(e.target.value)}
+                              placeholder="new password"
+                              className="h-8 w-32 text-xs font-mono"
+                              autoFocus
+                            />
+                            <Button size="sm" variant="candy" className="h-8 rounded-full" onClick={() => onReset(s.id)} disabled={pending}>
+                              Save
+                            </Button>
+                            <Button size="sm" variant="ghost" className="h-8" onClick={() => { setResetForId(null); setResetPw(""); }}>
+                              Cancel
+                            </Button>
+                          </>
+                        ) : (
+                          <>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => { setResetForId(s.id); setResetPw(randomPassword()); }}
+                              aria-label={`Reset password for ${s.display_name}`}
+                            >
+                              <RefreshCw className="mr-1 h-3.5 w-3.5" /> Reset
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => onDelete(s.id, s.display_name)}
+                              disabled={pending}
+                              aria-label={`Remove ${s.display_name}`}
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </Button>
+                          </>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
         </Card>
       )}
     </div>

@@ -42,8 +42,14 @@ export type DbStudent = {
   class_id: string;
   display_name: string;
   anon_token: string;
+  username: string | null;
+  password_plain: string | null;
+  self_signup: boolean;
+  last_seen_at: string | null;
   created_at: string;
 };
+
+export type AttemptStatus = "in_progress" | "submitted" | "approved" | "needs_redo";
 
 export type DbAttempt = {
   id: string;
@@ -53,6 +59,11 @@ export type DbAttempt = {
   started_at: string;
   submitted_at: string | null;
   duration_used_sec: number | null;
+  status: AttemptStatus;
+  teacher_note: string | null;
+  reviewed_at: string | null;
+  reviewed_by: string | null;
+  results_email_sent_at: string | null;
 };
 
 export type DbAnswer = {
@@ -66,4 +77,30 @@ export type DbAnswer = {
   score: number | null;
   feedback: string | null;
   answered_at: string;
+  explanation_file_path: string | null;
+  explanation_mime: string | null;
+  teacher_feedback: string | null;
+  feedback_at: string | null;
+};
+
+export type DbAssignment = {
+  id: string;
+  teacher_id: string;
+  test_id: string;
+  student_id: string;
+  due_at: string | null;
+  priority: number;
+  note: string | null;
+  created_at: string;
+};
+
+export type NotificationKind = "student_joined" | "attempt_submitted";
+
+export type DbNotification = {
+  id: string;
+  teacher_id: string;
+  kind: NotificationKind;
+  payload: Record<string, unknown>;
+  read_at: string | null;
+  created_at: string;
 };

@@ -20,7 +20,7 @@ async function loadClass(classId: string) {
   if (!cls) return null;
   const { data: students } = await admin
     .from("students")
-    .select("id, display_name, username, created_at")
+    .select("id, display_name, username, password_plain, self_signup, last_seen_at, created_at")
     .eq("class_id", classId)
     .order("created_at", { ascending: false });
   const { data: classTests } = await admin

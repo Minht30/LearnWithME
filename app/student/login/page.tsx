@@ -82,10 +82,16 @@ export default function StudentLoginPage() {
               )}
             </Button>
           </form>
-          <p className="mt-6 text-center text-xs text-muted-foreground">
-            No account?{" "}
-            <Link href="/join" className="font-semibold text-[var(--brand)] underline">
-              Join as a guest with just a code
+          <p className="mt-6 text-center text-sm text-muted-foreground">
+            New here?{" "}
+            <Link href="/student/signup" className="font-semibold text-[var(--brand)] underline">
+              Make an account
+            </Link>
+          </p>
+          <p className="mt-2 text-center text-xs text-muted-foreground">
+            Or{" "}
+            <Link href="/join" className="underline hover:text-foreground">
+              join as a guest with just a code
             </Link>
           </p>
         </Card>
