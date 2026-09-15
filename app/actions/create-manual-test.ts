@@ -61,7 +61,8 @@ export async function createManualTest(
     rubric: q.rubric ?? null,
     difficulty: q.difficulty,
     strand: q.strand ?? null,
-    position: i,
+    position: i + 1,
+    points: q.points ?? 1,
   }));
   const { error: qErr } = await admin.from("questions").insert(rows);
   if (qErr) {
