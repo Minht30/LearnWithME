@@ -452,20 +452,22 @@ export function PracticeRoom({
         Skip to current question
       </a>
       <header className="sticky top-0 z-20 border-b border-border/60 bg-background/70 backdrop-blur zen-hide">
-        <div className="mx-auto flex max-w-5xl items-center justify-between gap-3 px-4 py-3">
-          <div className="flex items-center gap-3 min-w-0">
-            <AppBrand />
-            <div className="hidden sm:block h-5 w-px bg-border" />
-            <div className="min-w-0">
+        <div className="mx-auto flex max-w-5xl items-center justify-between gap-2 px-3 py-3 sm:gap-3 sm:px-4">
+          <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1">
+            <div className="shrink-0">
+              <AppBrand />
+            </div>
+            <div className="hidden md:block h-5 w-px bg-border shrink-0" />
+            <div className="hidden md:block min-w-0">
               <div className="text-xs text-muted-foreground">
                 {test.subject} · Grade {test.grade}
               </div>
               <div className="truncate text-sm font-semibold">{test.title}</div>
             </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
             <StreakBadge count={streak} />
-            <div className="hidden sm:flex items-center gap-1 text-xs text-muted-foreground">
+            <div className="hidden lg:flex items-center gap-1 text-xs text-muted-foreground">
               <Sparkles className="h-3 w-3 text-[var(--brand)]" />
               {correctCount} of {answeredCount || 0}
             </div>
@@ -772,8 +774,8 @@ export function PracticeRoom({
           </motion.div>
         </AnimatePresence>
 
-        <div className="mt-6 flex items-center justify-between gap-3">
-          <div className="flex items-center gap-2">
+        <div className="mt-6 flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-2 order-2 sm:order-1">
             <Button
               variant="ghost"
               size="sm"
@@ -789,36 +791,37 @@ export function PracticeRoom({
               </Button>
             )}
           </div>
+          <div className="order-1 sm:order-2 w-full sm:w-auto">
           {q.type === "passage" ? (
-            <motion.div whileTap={{ scale: 0.96 }}>
+            <motion.div whileTap={{ scale: 0.96 }} className="w-full sm:w-auto">
               <Button
                 onClick={onNext}
                 variant="candy"
                 size="lg"
-                className="min-w-[180px] h-14 px-6 text-base"
+                className="w-full sm:w-auto sm:min-w-[180px] h-14 px-6 text-base"
               >
                 Continue →
               </Button>
             </motion.div>
           ) : !isChecked ? (
-            <motion.div whileTap={{ scale: 0.96 }}>
+            <motion.div whileTap={{ scale: 0.96 }} className="w-full sm:w-auto">
               <Button
                 onClick={onCheck}
                 variant="candy"
                 size="lg"
-                className="min-w-[180px] h-14 px-6 text-base"
+                className="w-full sm:w-auto sm:min-w-[180px] h-14 px-6 text-base"
               >
                 <Check className="mr-1.5 h-5 w-5" /> Check answer
               </Button>
             </motion.div>
           ) : (
-            <motion.div whileTap={{ scale: 0.96 }}>
+            <motion.div whileTap={{ scale: 0.96 }} className="w-full sm:w-auto">
               <Button
                 onClick={onNext}
                 variant="candy"
                 size="lg"
                 disabled={pending}
-                className="min-w-[180px] h-14 px-6 text-base"
+                className="w-full sm:w-auto sm:min-w-[180px] h-14 px-6 text-base"
               >
                 {idx < total - 1 ? (
                   <>Next question →</>
@@ -828,6 +831,7 @@ export function PracticeRoom({
               </Button>
             </motion.div>
           )}
+          </div>
         </div>
 
         {/* Question map */}

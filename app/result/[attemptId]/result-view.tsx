@@ -126,9 +126,9 @@ function ScoreCircle({
   const offset = c * (1 - percent / 100);
   const good = percent >= 70;
   return (
-    <Card className="mx-auto flex max-w-md items-center justify-center gap-6 p-6 lwm-card overflow-hidden">
-      <div className="relative">
-        <svg width="180" height="180" viewBox="0 0 180 180">
+    <Card className="mx-auto flex max-w-md flex-col sm:flex-row items-center justify-center gap-4 sm:gap-6 p-6 lwm-card overflow-hidden text-center sm:text-left">
+      <div className="relative shrink-0">
+        <svg width="180" height="180" viewBox="0 0 180 180" className="max-w-full h-auto">
           <defs>
             <linearGradient id="scoreGrad" x1="0" y1="0" x2="1" y2="1">
               <stop offset="0%" stopColor="var(--brand)" />

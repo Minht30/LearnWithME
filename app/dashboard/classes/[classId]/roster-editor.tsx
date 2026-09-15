@@ -131,7 +131,8 @@ export function RosterEditor({
         </Card>
       ) : (
         <Card className="lwm-card overflow-hidden">
-          <table className="w-full text-sm">
+          <div className="overflow-x-auto">
+          <table className="w-full min-w-[560px] text-sm">
             <caption className="sr-only">Roster with usernames and passwords for recovery.</caption>
             <thead className="bg-muted/50 text-xs uppercase tracking-wide text-muted-foreground">
               <tr>
@@ -249,6 +250,7 @@ export function RosterEditor({
               })}
             </tbody>
           </table>
+          </div>
         </Card>
       )}
     </div>

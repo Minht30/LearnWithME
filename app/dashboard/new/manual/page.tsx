@@ -336,7 +336,7 @@ export default function ManualBuilderPage() {
           />
         </div>
 
-        <div className="grid grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <div>
             <Label className="mb-1.5 block">Subject</Label>
             <select
@@ -970,7 +970,7 @@ function TypePicker({ onPick }: { onPick: (t: QuestionType) => void }) {
             onClick={() => setOpen(false)}
             className="fixed inset-0 z-10 cursor-default bg-transparent"
           />
-          <div className="absolute left-0 top-11 z-20 grid w-[320px] gap-1 rounded-2xl border bg-popover p-2 shadow-lg">
+          <div className="absolute left-0 top-11 z-20 grid w-[min(320px,calc(100vw-2rem))] gap-1 rounded-2xl border bg-popover p-2 shadow-lg">
             {TYPES.map((t) => (
               <button
                 key={t.value}

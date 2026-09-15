@@ -59,7 +59,7 @@ export default async function ClassPage({
           </div>
           <h1 className="mt-1 text-3xl font-semibold tracking-tight">{cls.name}</h1>
         </div>
-        <Card className="p-4 min-w-[220px]">
+        <Card className="p-4 w-full sm:w-auto sm:min-w-[220px]">
           <div className="text-xs uppercase text-muted-foreground">Join code</div>
           <div className="mt-1 font-mono text-2xl font-bold tracking-widest">{cls.join_code}</div>
           <div className="mt-2 flex items-center gap-1 text-xs text-muted-foreground">
