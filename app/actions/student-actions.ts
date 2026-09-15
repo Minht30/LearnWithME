@@ -157,16 +157,25 @@ async function gradeOne(
     };
   }
 
-  if (q.type === "cloze") {
-    const correctArr = (Array.isArray(q.correct) ? q.correct : [String(q.correct)]).map(normalize);
-    let studentArr: string[] = [];
+  if (q.type === "cloze" || q.type === "word_bank") {
+    const correctArrRaw = Array.isArray(q.correct) ? q.correct : [String(q.correct)];
+    const correctArr = correctArrRaw.map(normalize);
+    let studentArrRaw: string[] = [];
     try {
       const parsed = JSON.parse(trimmed || "[]");
-      if (Array.isArray(parsed)) studentArr = parsed.map((c) => normalize(String(c)));
+      if (Array.isArray(parsed)) studentArrRaw = parsed.map((c) => String(c));
     } catch { /* ignore */ }
-    // Pad to correct length so partial-credit denominator is stable.
+    const studentArr = studentArrRaw.map(normalize);
     while (studentArr.length < correctArr.length) studentArr.push("");
-    const matches = correctArr.filter((c, i) => c === studentArr[i]).length;
+    // Per-blank compare: numeric equality when both parseable, else string equality.
+    const blankMatch = (a: string, b: string) => {
+      const na = parseFloat(a); const nb = parseFloat(b);
+      if (Number.isFinite(na) && Number.isFinite(nb) && String(na) === a.trim() && String(nb) === b.trim()) {
+        return Math.abs(na - nb) < 1e-6;
+      }
+      return a === b;
+    };
+    const matches = correctArr.filter((c, i) => blankMatch(c, studentArr[i])).length;
     const score = correctArr.length ? matches / correctArr.length : 0;
     const ok = matches === correctArr.length;
     return {
@@ -176,6 +185,59 @@ async function gradeOne(
         ? "Every blank correct!"
         : `Filled ${matches} of ${correctArr.length} correctly.`,
     };
+  }
+
+  if (q.type === "highlight") {
+    const correctSet = new Set((Array.isArray(q.correct) ? q.correct : [String(q.correct)]).map(normalize));
+    let studentSet = new Set<string>();
+    try {
+      const parsed = JSON.parse(trimmed || "[]");
+      if (Array.isArray(parsed)) studentSet = new Set(parsed.map((c) => normalize(String(c))));
+    } catch { /* ignore */ }
+    const hits = [...correctSet].filter((c) => studentSet.has(c)).length;
+    const wrong = [...studentSet].filter((c) => !correctSet.has(c)).length;
+    const total = correctSet.size;
+    // Jaccard-ish partial credit; penalize wrong picks.
+    const raw = total ? Math.max(0, hits - wrong) / total : 0;
+    const ok = hits === total && wrong === 0;
+    return {
+      is_correct: ok,
+      score: Math.max(0, Math.min(1, raw)),
+      feedback: ok
+        ? "Every word right!"
+        : `Found ${hits} of ${total}${wrong ? `, ${wrong} extra` : ""}.`,
+    };
+  }
+
+  if (q.type === "match") {
+    const leftArr = Array.isArray(q.choices) ? q.choices : [];
+    const rightArr = Array.isArray(q.correct) ? q.correct : [String(q.correct)];
+    let studentMap: Record<string, number> = {};
+    try {
+      const parsed = JSON.parse(trimmed || "{}");
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        studentMap = parsed as Record<string, number>;
+      }
+    } catch { /* ignore */ }
+    const total = leftArr.length;
+    let matches = 0;
+    for (let i = 0; i < total; i++) {
+      const picked = studentMap[String(i)];
+      if (typeof picked === "number" && normalize(String(rightArr[picked] ?? "")) === normalize(String(rightArr[i] ?? ""))) {
+        matches++;
+      }
+    }
+    const ok = matches === total && total > 0;
+    return {
+      is_correct: ok,
+      score: total ? matches / total : 0,
+      feedback: ok ? "Every match right!" : `Matched ${matches} of ${total}.`,
+    };
+  }
+
+  if (q.type === "passage") {
+    // Passages are display-only; no scoring.
+    return { is_correct: true, score: 0, feedback: "" };
   }
 
   if (q.type === "numeric") {

@@ -63,10 +63,21 @@ function normalizeCorrect(v: unknown): string {
 
 const norm = (s: string) => s.toLowerCase().replace(/\s+/g, " ").trim();
 
+function blankEq(a: string, b: string) {
+  const na = parseFloat(a); const nb = parseFloat(b);
+  if (Number.isFinite(na) && Number.isFinite(nb) && String(na) === a.trim() && String(nb) === b.trim()) {
+    return Math.abs(na - nb) < 1e-6;
+  }
+  return norm(a) === norm(b);
+}
+
 function gradeLocally(q: DbQuestion, response: string): LocalGrade {
   const trimmed = (response ?? "").trim();
   const correctAnswer = normalizeCorrect(q.correct);
 
+  if (q.type === "passage") {
+    return { isCorrect: true, correctAnswer: "", feedback: "" };
+  }
   if (q.type === "mcq") {
     const ok = trimmed.toLowerCase() === correctAnswer.toLowerCase();
     return {
@@ -90,17 +101,52 @@ function gradeLocally(q: DbQuestion, response: string): LocalGrade {
       feedback: ok ? stableEncouragement(q.id) : "Check the boxes again.",
     };
   }
-  if (q.type === "cloze") {
-    const correctArr = (Array.isArray(q.correct) ? q.correct : [String(q.correct)]).map(norm);
+  if (q.type === "cloze" || q.type === "word_bank") {
+    const correctArrRaw = Array.isArray(q.correct) ? q.correct : [String(q.correct)];
     let studentArr: string[] = [];
-    try { const p = JSON.parse(trimmed || "[]"); if (Array.isArray(p)) studentArr = p.map((x) => norm(String(x))); } catch { /* empty */ }
-    while (studentArr.length < correctArr.length) studentArr.push("");
-    const matches = correctArr.filter((c, i) => c === studentArr[i]).length;
-    const ok = matches === correctArr.length;
+    try { const p = JSON.parse(trimmed || "[]"); if (Array.isArray(p)) studentArr = p.map((x) => String(x)); } catch { /* empty */ }
+    while (studentArr.length < correctArrRaw.length) studentArr.push("");
+    const matches = correctArrRaw.filter((c, i) => blankEq(String(c), studentArr[i])).length;
+    const ok = matches === correctArrRaw.length;
     return {
       isCorrect: ok,
       correctAnswer,
-      feedback: ok ? stableEncouragement(q.id) : `Got ${matches} of ${correctArr.length} blanks.`,
+      feedback: ok ? stableEncouragement(q.id) : `Got ${matches} of ${correctArrRaw.length} blanks.`,
+    };
+  }
+  if (q.type === "highlight") {
+    const correctSet = new Set((Array.isArray(q.correct) ? q.correct : [String(q.correct)]).map(norm));
+    let studentSet = new Set<string>();
+    try { const p = JSON.parse(trimmed || "[]"); if (Array.isArray(p)) studentSet = new Set(p.map((x) => norm(String(x)))); } catch { /* empty */ }
+    const hits = [...correctSet].filter((c) => studentSet.has(c)).length;
+    const wrong = [...studentSet].filter((c) => !correctSet.has(c)).length;
+    const ok = hits === correctSet.size && wrong === 0;
+    return {
+      isCorrect: ok,
+      correctAnswer: [...correctSet].join(", "),
+      feedback: ok ? stableEncouragement(q.id) : `Found ${hits} of ${correctSet.size}${wrong ? `, ${wrong} extra` : ""}.`,
+    };
+  }
+  if (q.type === "match") {
+    const leftArr = Array.isArray(q.choices) ? q.choices : [];
+    const rightArr = Array.isArray(q.correct) ? q.correct : [String(q.correct)];
+    let studentMap: Record<string, number> = {};
+    try {
+      const p = JSON.parse(trimmed || "{}");
+      if (p && typeof p === "object" && !Array.isArray(p)) studentMap = p as Record<string, number>;
+    } catch { /* empty */ }
+    let matches = 0;
+    for (let i = 0; i < leftArr.length; i++) {
+      const pick = studentMap[String(i)];
+      if (typeof pick === "number" && norm(String(rightArr[pick] ?? "")) === norm(String(rightArr[i] ?? ""))) {
+        matches++;
+      }
+    }
+    const ok = matches === leftArr.length && leftArr.length > 0;
+    return {
+      isCorrect: ok,
+      correctAnswer,
+      feedback: ok ? stableEncouragement(q.id) : `Matched ${matches} of ${leftArr.length}.`,
     };
   }
   if (q.type === "numeric") {
@@ -235,6 +281,7 @@ export function PracticeRoom({
 
   function onCheck() {
     if (!q) return;
+    if (q.type === "passage") { onNext(); return; }
     const response = responses[q.id] ?? "";
     if (!response.trim()) { toast.error("Answer the question first."); return; }
     const requiresWork = q.type === "numeric" || q.type === "short" || q.type === "long";
@@ -494,7 +541,32 @@ export function PracticeRoom({
             )}
 
             <div className="mt-6">
-              {q.type === "cloze" ? (
+              {q.type === "passage" ? (
+                <div className="rounded-2xl border-2 border-dashed border-[var(--brand)]/40 bg-[color-mix(in_oklab,var(--brand)_5%,transparent)] p-4 text-sm text-muted-foreground">
+                  Read the passage above, then continue.
+                </div>
+              ) : q.type === "highlight" ? (
+                <HighlightAnswer
+                  q={q}
+                  value={responses[q.id] ?? ""}
+                  disabled={isChecked}
+                  onChange={(v) => setResponse(q.id, v)}
+                />
+              ) : q.type === "match" ? (
+                <MatchAnswer
+                  q={q}
+                  value={responses[q.id] ?? ""}
+                  disabled={isChecked}
+                  onChange={(v) => setResponse(q.id, v)}
+                />
+              ) : q.type === "word_bank" ? (
+                <WordBankAnswer
+                  q={q}
+                  value={responses[q.id] ?? ""}
+                  disabled={isChecked}
+                  onChange={(v) => setResponse(q.id, v)}
+                />
+              ) : q.type === "cloze" ? (
                 <ClozeAnswer
                   q={q}
                   value={responses[q.id] ?? ""}
@@ -571,14 +643,10 @@ export function PracticeRoom({
                   })}
                 </div>
               ) : q.type === "numeric" ? (
-                <Input
-                  type="text"
-                  inputMode="decimal"
+                <NumericAnswer
                   value={responses[q.id] ?? ""}
-                  onChange={(e) => setResponse(q.id, e.target.value)}
-                  placeholder="Type your answer"
                   disabled={isChecked}
-                  className="h-14 max-w-xs text-xl font-medium rounded-2xl"
+                  onChange={(v) => setResponse(q.id, v)}
                 />
               ) : q.type === "short" ? (
                 <Input
@@ -721,7 +789,18 @@ export function PracticeRoom({
               </Button>
             )}
           </div>
-          {!isChecked ? (
+          {q.type === "passage" ? (
+            <motion.div whileTap={{ scale: 0.96 }}>
+              <Button
+                onClick={onNext}
+                variant="candy"
+                size="lg"
+                className="min-w-[180px] h-14 px-6 text-base"
+              >
+                Continue →
+              </Button>
+            </motion.div>
+          ) : !isChecked ? (
             <motion.div whileTap={{ scale: 0.96 }}>
               <Button
                 onClick={onCheck}
@@ -1041,4 +1120,304 @@ function ClozeAnswer({
       })}
     </div>
   );
+}
+
+// ---------------------------------------------------------------------------
+// Wave 2 widgets
+// ---------------------------------------------------------------------------
+
+const MATH_KEYS = ["7","8","9","÷","4","5","6","×","1","2","3","−","0",".","(",")","π","√","²","³","±","/","x","="];
+
+function NumericAnswer({
+  value, disabled, onChange,
+}: { value: string; disabled: boolean; onChange: (v: string) => void }) {
+  const [padOpen, setPadOpen] = useState(false);
+  function insert(k: string) {
+    // Some keys map to standard characters for parseFloat friendliness.
+    const map: Record<string, string> = { "×": "*", "÷": "/", "−": "-" };
+    onChange(value + (map[k] ?? k));
+  }
+  return (
+    <div>
+      <div className="flex items-center gap-2">
+        <Input
+          type="text"
+          inputMode="decimal"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder="Type your answer"
+          disabled={disabled}
+          className="h-14 max-w-xs text-xl font-medium rounded-2xl"
+        />
+        {!disabled && (
+          <button
+            type="button"
+            onClick={() => setPadOpen((p) => !p)}
+            aria-pressed={padOpen}
+            className="inline-flex items-center gap-1 rounded-full border-2 border-border px-3 py-2 text-xs font-semibold text-muted-foreground hover:border-[var(--brand)] hover:text-foreground"
+            aria-label="Toggle math keyboard"
+          >
+            <span aria-hidden>π√</span>
+            <span className="hidden sm:inline">Math pad</span>
+          </button>
+        )}
+      </div>
+      {padOpen && !disabled && (
+        <div className="mt-3 grid grid-cols-4 gap-1.5 max-w-xs rounded-2xl border-2 border-[var(--brand)]/30 bg-[color-mix(in_oklab,var(--brand)_5%,transparent)] p-2">
+          {MATH_KEYS.map((k) => (
+            <button
+              key={k}
+              type="button"
+              onClick={() => insert(k)}
+              className="h-9 rounded-lg bg-background text-sm font-semibold hover:bg-[color-mix(in_oklab,var(--brand)_10%,transparent)]"
+              aria-label={`Insert ${k}`}
+            >
+              {k}
+            </button>
+          ))}
+          <button
+            type="button"
+            onClick={() => onChange(value.slice(0, -1))}
+            className="col-span-4 h-9 rounded-lg border border-[var(--brand)]/40 text-sm font-semibold text-muted-foreground hover:bg-[color-mix(in_oklab,var(--brand)_10%,transparent)]"
+            aria-label="Backspace"
+          >
+            ⌫  Backspace
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function HighlightAnswer({
+  q, value, disabled, onChange,
+}: { q: QuestionWithMedia; value: string; disabled: boolean; onChange: (v: string) => void }) {
+  // Tokenize the prompt: keep words and spaces separate so punctuation stays put.
+  const tokens = q.prompt.split(/(\s+|[.,;:!?"'()\[\]—-])/).filter((t) => t.length > 0);
+  let chosen: string[] = [];
+  try { const p = JSON.parse(value || "[]"); if (Array.isArray(p)) chosen = p.map(String); } catch { /* empty */ }
+  const chosenLower = new Set(chosen.map((s) => s.toLowerCase()));
+
+  function toggle(word: string) {
+    if (disabled) return;
+    const key = word.toLowerCase();
+    const next = chosenLower.has(key)
+      ? chosen.filter((c) => c.toLowerCase() !== key)
+      : [...chosen, word];
+    onChange(JSON.stringify(next));
+  }
+
+  return (
+    <div>
+      <p className="mb-2 text-xs text-muted-foreground">
+        Click every word that fits — click again to unpick.
+      </p>
+      <div className="rounded-2xl border-2 border-border bg-muted/20 p-4 text-lg leading-loose">
+        {tokens.map((t, i) => {
+          if (!/\w/.test(t)) return <span key={i}>{t}</span>;
+          const picked = chosenLower.has(t.toLowerCase());
+          return (
+            <button
+              key={i}
+              type="button"
+              disabled={disabled}
+              onClick={() => toggle(t)}
+              aria-pressed={picked}
+              className={`inline-block rounded-md px-1 -mx-0.5 transition-colors ${
+                picked
+                  ? "bg-[var(--brand)] text-primary-foreground font-semibold"
+                  : "hover:bg-[color-mix(in_oklab,var(--brand)_15%,transparent)]"
+              }`}
+            >
+              {t}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function MatchAnswer({
+  q, value, disabled, onChange,
+}: { q: QuestionWithMedia; value: string; disabled: boolean; onChange: (v: string) => void }) {
+  const leftArr = Array.isArray(q.choices) ? q.choices : [];
+  const rightArr = Array.isArray(q.correct) ? q.correct : [String(q.correct)];
+  // Shuffle right column display order deterministically per question so it doesn't
+  // reshuffle on every render but is different from left order.
+  const rightOrder = deterministicShuffle(rightArr.map((_, i) => i), q.id);
+
+  let mapping: Record<string, number> = {};
+  try {
+    const p = JSON.parse(value || "{}");
+    if (p && typeof p === "object" && !Array.isArray(p)) mapping = p as Record<string, number>;
+  } catch { /* empty */ }
+
+  function pick(leftIdx: number, rightIdx: number) {
+    if (disabled) return;
+    const next = { ...mapping };
+    // If this rightIdx was already assigned elsewhere, clear it there.
+    for (const k of Object.keys(next)) if (next[k] === rightIdx) delete next[k];
+    next[String(leftIdx)] = rightIdx;
+    onChange(JSON.stringify(next));
+  }
+
+  return (
+    <div>
+      <p className="mb-2 text-xs text-muted-foreground">
+        For each item on the left, tap its match on the right.
+      </p>
+      <div className="grid grid-cols-2 gap-3 sm:gap-4">
+        {leftArr.map((left, li) => {
+          const picked = mapping[String(li)];
+          return (
+            <div key={li} className="contents">
+              <div className={`rounded-xl border-2 px-3 py-2 text-sm ${
+                typeof picked === "number"
+                  ? "border-[var(--brand)] bg-[color-mix(in_oklab,var(--brand)_10%,transparent)]"
+                  : "border-border bg-muted/30"
+              }`}>
+                <span className="mr-2 font-mono text-xs text-muted-foreground">{li + 1}.</span>
+                <RichText html={left} inline as="span" />
+                {typeof picked === "number" && (
+                  <span className="ml-2 text-xs text-[var(--brand)]">→ {String.fromCharCode(65 + picked)}</span>
+                )}
+              </div>
+              <div className="flex flex-wrap gap-1">
+                {rightOrder.map((ri) => {
+                  const isMine = picked === ri;
+                  return (
+                    <button
+                      key={ri}
+                      type="button"
+                      disabled={disabled}
+                      onClick={() => pick(li, ri)}
+                      className={`rounded-full border-2 px-2.5 py-1 text-xs font-semibold transition-all ${
+                        isMine
+                          ? "border-[var(--brand)] bg-[var(--brand)] text-primary-foreground"
+                          : "border-border bg-background hover:border-[var(--brand)]"
+                      }`}
+                    >
+                      <span className="mr-1 opacity-70">{String.fromCharCode(65 + ri)}.</span>
+                      <RichText html={String(rightArr[ri])} inline as="span" />
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function WordBankAnswer({
+  q, value, disabled, onChange,
+}: { q: QuestionWithMedia; value: string; disabled: boolean; onChange: (v: string) => void }) {
+  const segments = parseCloze(q.prompt);
+  const blanks = segments.filter((s) => s.kind === "blank").length;
+  const bank = (Array.isArray(q.choices) ? q.choices : []).filter((w) => w.trim());
+
+  let picks: (string | null)[] = [];
+  try {
+    const p = JSON.parse(value || "[]");
+    if (Array.isArray(p)) picks = p.map((v) => (v == null ? null : String(v)));
+  } catch { /* empty */ }
+  while (picks.length < blanks) picks.push(null);
+
+  const usedCounts: Record<string, number> = {};
+  for (const p of picks) if (p) usedCounts[p] = (usedCounts[p] ?? 0) + 1;
+
+  function assign(blankIdx: number, word: string) {
+    const next = [...picks];
+    next[blankIdx] = word;
+    onChange(JSON.stringify(next));
+  }
+  function clearBlank(blankIdx: number) {
+    const next = [...picks];
+    next[blankIdx] = null;
+    onChange(JSON.stringify(next));
+  }
+
+  const [activeBlank, setActiveBlank] = useState<number | null>(null);
+
+  return (
+    <div>
+      <div className="font-display text-xl leading-loose sm:text-2xl">
+        {segments.map((s, i) => {
+          if (s.kind === "text") return <span key={i} dangerouslySetInnerHTML={{ __html: s.html }} />;
+          const p = picks[s.index];
+          const isActive = activeBlank === s.index;
+          return (
+            <button
+              key={i}
+              type="button"
+              onClick={() => (disabled ? undefined : (p ? clearBlank(s.index) : setActiveBlank(s.index)))}
+              disabled={disabled}
+              aria-label={p ? `Blank ${s.index + 1} filled with ${p}. Click to clear.` : `Blank ${s.index + 1}. Click, then pick from bank.`}
+              className={`mx-1 inline-block min-w-[6rem] rounded-xl border-2 px-3 py-1 text-base font-medium transition-all ${
+                isActive
+                  ? "border-[var(--brand)] bg-[color-mix(in_oklab,var(--brand)_20%,transparent)] ring-4 ring-[color-mix(in_oklab,var(--brand)_15%,transparent)]"
+                  : p
+                  ? "border-[var(--brand)] bg-[color-mix(in_oklab,var(--brand)_10%,transparent)]"
+                  : "border-dashed border-[var(--brand)]/40 bg-[color-mix(in_oklab,var(--brand)_5%,transparent)] text-muted-foreground"
+              }`}
+            >
+              {p ?? "___"}
+            </button>
+          );
+        })}
+      </div>
+      <div className="mt-4">
+        <p className="mb-2 text-xs text-muted-foreground">
+          {activeBlank == null
+            ? "Tap a blank above, then choose a word."
+            : `Choose a word for blank ${activeBlank + 1}.`}
+        </p>
+        <div className="flex flex-wrap gap-2">
+          {bank.map((w, wi) => {
+            const usedElsewhere = usedCounts[w] > 0 && !picks.includes(w);
+            return (
+              <button
+                key={wi}
+                type="button"
+                disabled={disabled || activeBlank == null}
+                onClick={() => {
+                  if (activeBlank == null) return;
+                  assign(activeBlank, w);
+                  // Jump to next unfilled blank if any
+                  const next = picks.findIndex((v, i) => v == null && i !== activeBlank);
+                  setActiveBlank(next === -1 ? null : next);
+                }}
+                className={`rounded-full border-2 px-3 py-1.5 text-sm font-semibold transition-all ${
+                  usedElsewhere
+                    ? "border-border/40 bg-muted/20 text-muted-foreground line-through"
+                    : "border-border bg-background hover:border-[var(--brand)] hover:bg-[color-mix(in_oklab,var(--brand)_10%,transparent)]"
+                } ${activeBlank == null ? "opacity-50" : ""}`}
+              >
+                {w}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Deterministic shuffle for match-right column, seeded by question id
+function deterministicShuffle<T>(arr: T[], seed: string): T[] {
+  const out = [...arr];
+  let h = 0;
+  for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) | 0;
+  const rand = () => {
+    h = (h * 9301 + 49297) & 0x7fffffff;
+    return h / 0x7fffffff;
+  };
+  for (let i = out.length - 1; i > 0; i--) {
+    const j = Math.floor(rand() * (i + 1));
+    [out[i], out[j]] = [out[j], out[i]];
+  }
+  return out;
 }

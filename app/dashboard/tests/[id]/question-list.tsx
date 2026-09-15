@@ -10,7 +10,8 @@ import { toast } from "sonner";
 import {
   Trash2, Check, X as XIcon, Pencil, GripVertical, ImagePlus, Loader2,
   Plus, ChevronDown, Calculator, ListChecks, ToggleLeft, TextCursorInput,
-  MessageSquare, Type as TypeIcon,
+  MessageSquare, Type as TypeIcon, Highlighter, ArrowLeftRight, Package,
+  BookOpen,
 } from "lucide-react";
 import {
   deleteQuestion, updateQuestion, reorderQuestions, addQuestion,
@@ -23,15 +24,23 @@ import type { QuestionType } from "@/lib/schemas/question";
 type QuestionWithMedia = DbQuestion & { imageUrl?: string | null };
 
 const TYPE_META: Record<string, { label: string; icon: React.ReactNode; help: string }> = {
-  mcq:          { label: "Multiple choice",    icon: <ListChecks className="h-3.5 w-3.5" />,      help: "One correct choice from a list." },
-  multi_select: { label: "Check all that apply", icon: <ListChecks className="h-3.5 w-3.5" />,    help: "Two or more correct choices." },
-  true_false:   { label: "True / False",       icon: <ToggleLeft className="h-3.5 w-3.5" />,      help: "Quick binary check." },
-  numeric:      { label: "Number",             icon: <Calculator className="h-3.5 w-3.5" />,      help: "Exact numeric answer." },
-  cloze:        { label: "Fill in the blanks", icon: <TextCursorInput className="h-3.5 w-3.5" />, help: "Use [BLANK] where the student types." },
-  short:        { label: "Short answer",       icon: <TypeIcon className="h-3.5 w-3.5" />,        help: "Single line of text." },
-  long:         { label: "Written response",   icon: <MessageSquare className="h-3.5 w-3.5" />,   help: "Paragraph, teacher-graded." },
+  mcq:          { label: "Multiple choice",     icon: <ListChecks className="h-3.5 w-3.5" />,      help: "One correct choice from a list." },
+  multi_select: { label: "Check all that apply",icon: <ListChecks className="h-3.5 w-3.5" />,      help: "Two or more correct choices." },
+  true_false:   { label: "True / False",        icon: <ToggleLeft className="h-3.5 w-3.5" />,      help: "Quick binary check." },
+  numeric:      { label: "Number",              icon: <Calculator className="h-3.5 w-3.5" />,      help: "Exact numeric answer." },
+  cloze:        { label: "Fill in the blanks",  icon: <TextCursorInput className="h-3.5 w-3.5" />, help: "Use [BLANK] where the student types." },
+  word_bank:    { label: "Word bank fill",      icon: <Package className="h-3.5 w-3.5" />,         help: "Cloze where the student picks from a word bank." },
+  highlight:    { label: "Highlight words",     icon: <Highlighter className="h-3.5 w-3.5" />,     help: "Student clicks the words that fit." },
+  match:        { label: "Match pairs",         icon: <ArrowLeftRight className="h-3.5 w-3.5" />,  help: "Two columns to match up." },
+  passage:      { label: "Reading passage",     icon: <BookOpen className="h-3.5 w-3.5" />,        help: "Non-scored text block above other questions." },
+  short:        { label: "Short answer",        icon: <TypeIcon className="h-3.5 w-3.5" />,        help: "Single line of text." },
+  long:         { label: "Written response",    icon: <MessageSquare className="h-3.5 w-3.5" />,   help: "Paragraph, teacher-graded." },
 };
-const ADD_TYPES: QuestionType[] = ["mcq", "multi_select", "true_false", "numeric", "cloze", "short", "long"];
+const ADD_TYPES: QuestionType[] = [
+  "mcq", "multi_select", "true_false", "numeric",
+  "cloze", "word_bank", "highlight", "match",
+  "passage", "short", "long",
+];
 
 export function QuestionList({
   questions, testId,
@@ -442,6 +451,196 @@ function AnswerEditor({
     );
   }
 
+  if (type === "passage") {
+    return (
+      <p className="text-xs text-muted-foreground italic">
+        This is a display-only passage. It doesn&apos;t count toward the score. Students see the prompt as a text block above the following questions.
+      </p>
+    );
+  }
+
+  if (type === "highlight") {
+    const words = Array.isArray(correct) ? correct : [String(correct)];
+    return (
+      <div>
+        <label className="mb-1 block text-xs font-semibold text-muted-foreground">
+          Words the student must click (must appear in the prompt)
+        </label>
+        <div className="space-y-2">
+          {words.map((w, i) => (
+            <div key={i} className="flex items-center gap-2">
+              <span className="w-6 text-center font-mono text-xs text-muted-foreground">#{i + 1}</span>
+              <Input
+                value={w}
+                onChange={(e) => {
+                  const next = [...words];
+                  next[i] = e.target.value;
+                  setCorrect(next);
+                }}
+                className="rounded-xl h-9"
+              />
+              <button
+                onClick={() => setCorrect(words.filter((_, j) => j !== i))}
+                aria-label="Remove word"
+                className="text-muted-foreground hover:text-foreground"
+              >
+                <XIcon className="h-4 w-4" />
+              </button>
+            </div>
+          ))}
+          <button
+            onClick={() => setCorrect([...words, ""])}
+            className="inline-flex items-center gap-1 rounded-full border px-3 py-1 text-xs font-semibold text-muted-foreground hover:text-foreground"
+          >
+            <Plus className="h-3 w-3" /> Add word
+          </button>
+        </div>
+        <p className="mt-2 text-xs text-muted-foreground">
+          Matching is case-insensitive.
+        </p>
+      </div>
+    );
+  }
+
+  if (type === "match") {
+    const rights = Array.isArray(correct) ? correct : [String(correct)];
+    const lefts = choices;
+    const rows = Math.max(lefts.length, rights.length);
+    return (
+      <div>
+        <label className="mb-1 block text-xs font-semibold text-muted-foreground">
+          Match pairs — each row is <span className="font-mono">Left ↔ Right</span>. Order defines the correct match.
+        </label>
+        <div className="space-y-2">
+          {Array.from({ length: rows }).map((_, i) => (
+            <div key={i} className="flex items-center gap-2">
+              <Input
+                value={lefts[i] ?? ""}
+                onChange={(e) => {
+                  const next = [...lefts];
+                  next[i] = e.target.value;
+                  setChoices(next);
+                }}
+                placeholder="Left side"
+                className="rounded-xl h-9 flex-1"
+              />
+              <span className="text-muted-foreground">↔</span>
+              <Input
+                value={rights[i] ?? ""}
+                onChange={(e) => {
+                  const next = [...rights];
+                  next[i] = e.target.value;
+                  setCorrect(next);
+                }}
+                placeholder="Right side"
+                className="rounded-xl h-9 flex-1"
+              />
+              <button
+                onClick={() => {
+                  setChoices(lefts.filter((_, j) => j !== i));
+                  setCorrect(rights.filter((_, j) => j !== i));
+                }}
+                aria-label="Remove pair"
+                className="text-muted-foreground hover:text-foreground"
+              >
+                <XIcon className="h-4 w-4" />
+              </button>
+            </div>
+          ))}
+          <button
+            onClick={() => { setChoices([...lefts, ""]); setCorrect([...rights, ""]); }}
+            className="inline-flex items-center gap-1 rounded-full border px-3 py-1 text-xs font-semibold text-muted-foreground hover:text-foreground"
+          >
+            <Plus className="h-3 w-3" /> Add pair
+          </button>
+        </div>
+        <p className="mt-2 text-xs text-muted-foreground">
+          The right column is shuffled for the student — order here only defines what matches what.
+        </p>
+      </div>
+    );
+  }
+
+  if (type === "word_bank") {
+    const blanks = Array.isArray(correct) ? correct : [String(correct)];
+    return (
+      <div className="space-y-4">
+        <div>
+          <label className="mb-1 block text-xs font-semibold text-muted-foreground">
+            Expected answers (one per [BLANK] in order)
+          </label>
+          <div className="space-y-2">
+            {blanks.map((b, i) => (
+              <div key={i} className="flex items-center gap-2">
+                <span className="w-6 text-center font-mono text-xs text-muted-foreground">#{i + 1}</span>
+                <Input
+                  value={b}
+                  onChange={(e) => {
+                    const next = [...blanks];
+                    next[i] = e.target.value;
+                    setCorrect(next);
+                  }}
+                  className="rounded-xl h-9"
+                  placeholder="Expected text"
+                />
+                <button
+                  onClick={() => setCorrect(blanks.filter((_, j) => j !== i))}
+                  aria-label="Remove blank"
+                  className="text-muted-foreground hover:text-foreground"
+                >
+                  <XIcon className="h-4 w-4" />
+                </button>
+              </div>
+            ))}
+            <button
+              onClick={() => setCorrect([...blanks, ""])}
+              className="inline-flex items-center gap-1 rounded-full border px-3 py-1 text-xs font-semibold text-muted-foreground hover:text-foreground"
+            >
+              <Plus className="h-3 w-3" /> Add blank
+            </button>
+          </div>
+        </div>
+        <div>
+          <label className="mb-1 block text-xs font-semibold text-muted-foreground">
+            Word bank (shown to student as draggable choices)
+          </label>
+          <div className="space-y-2">
+            {choices.map((c, i) => (
+              <div key={i} className="flex items-center gap-2">
+                <Input
+                  value={c}
+                  onChange={(e) => {
+                    const next = [...choices];
+                    next[i] = e.target.value;
+                    setChoices(next);
+                  }}
+                  className="rounded-xl h-9"
+                  placeholder="Word"
+                />
+                <button
+                  onClick={() => setChoices(choices.filter((_, j) => j !== i))}
+                  aria-label="Remove word"
+                  className="text-muted-foreground hover:text-foreground"
+                >
+                  <XIcon className="h-4 w-4" />
+                </button>
+              </div>
+            ))}
+            <button
+              onClick={() => setChoices([...choices, ""])}
+              className="inline-flex items-center gap-1 rounded-full border px-3 py-1 text-xs font-semibold text-muted-foreground hover:text-foreground"
+            >
+              <Plus className="h-3 w-3" /> Add bank word
+            </button>
+          </div>
+          <p className="mt-2 text-xs text-muted-foreground">
+            Include the correct words above plus a few distractors.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   if (type === "cloze") {
     const blanks = Array.isArray(correct) ? correct : [String(correct)];
     return (
@@ -563,6 +762,60 @@ function AnswerPreview({ q }: { q: QuestionWithMedia }) {
           );
         })}
       </ul>
+    );
+  }
+  if (q.type === "passage") {
+    return (
+      <p className="text-xs text-muted-foreground italic">
+        Reading passage — not scored.
+      </p>
+    );
+  }
+  if (q.type === "highlight") {
+    const arr = Array.isArray(q.correct) ? q.correct : [String(q.correct)];
+    return (
+      <p className="rounded-lg border border-[color-mix(in_oklab,var(--success)_40%,transparent)] bg-[color-mix(in_oklab,var(--success)_8%,transparent)] px-3 py-1.5 text-sm">
+        <span className="mr-2 font-mono text-xs uppercase text-[color-mix(in_oklab,var(--success)_80%,black)] dark:text-[var(--success)]">
+          Words to click
+        </span>
+        {arr.map((w, i) => (
+          <span key={i} className="mr-1 inline-block rounded bg-[color-mix(in_oklab,var(--success)_18%,transparent)] px-1.5 py-0.5 font-semibold">
+            {w}
+          </span>
+        ))}
+      </p>
+    );
+  }
+  if (q.type === "match") {
+    const lefts = Array.isArray(q.choices) ? q.choices : [];
+    const rights = Array.isArray(q.correct) ? q.correct : [String(q.correct)];
+    return (
+      <ul className="space-y-1 text-sm">
+        {lefts.map((l, i) => (
+          <li key={i} className="rounded border border-[color-mix(in_oklab,var(--success)_40%,transparent)] bg-[color-mix(in_oklab,var(--success)_8%,transparent)] px-2.5 py-1">
+            <span className="font-mono text-xs text-muted-foreground mr-2">{i + 1}.</span>
+            <RichText html={l} inline as="span" />
+            <span className="mx-2 text-muted-foreground">↔</span>
+            <RichText html={String(rights[i] ?? "")} inline as="span" />
+          </li>
+        ))}
+      </ul>
+    );
+  }
+  if (q.type === "word_bank") {
+    const blanks = Array.isArray(q.correct) ? q.correct : [String(q.correct)];
+    return (
+      <div className="text-sm">
+        <p className="rounded-lg border border-[color-mix(in_oklab,var(--success)_40%,transparent)] bg-[color-mix(in_oklab,var(--success)_8%,transparent)] px-3 py-1.5">
+          <span className="mr-2 font-mono text-xs uppercase text-[color-mix(in_oklab,var(--success)_80%,black)] dark:text-[var(--success)]">
+            Blanks
+          </span>
+          {blanks.join(" · ")}
+        </p>
+        <p className="mt-1 text-xs text-muted-foreground">
+          Bank: {(q.choices ?? []).join(", ") || "(empty)"}
+        </p>
+      </div>
     );
   }
   const label = q.type === "cloze" ? "Blanks" : "Answer";

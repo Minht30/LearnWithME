@@ -66,6 +66,10 @@ export async function addQuestion(
     true_false:   { prompt: "New true/false statement", choices: null, correct: "true" },
     multi_select: { prompt: "New multi-select question", choices: ["Option A", "Option B", "Option C"], correct: ["Option A"] },
     cloze:        { prompt: "The capital of France is [BLANK].", choices: null, correct: ["Paris"] },
+    word_bank:    { prompt: "The capital of France is [BLANK] and it is in [BLANK].", choices: ["Paris", "Europe", "Madrid", "Asia"], correct: ["Paris", "Europe"] },
+    highlight:    { prompt: "Click every adjective in this sentence: The quick brown fox jumps over the lazy dog.", choices: null, correct: ["quick", "brown", "lazy"] },
+    match:        { prompt: "Match each animal to the sound it makes.", choices: ["Cat", "Dog", "Cow"], correct: ["Meow", "Bark", "Moo"] },
+    passage:      { prompt: "Paste the reading passage here. Students see this above the questions that follow.", choices: null, correct: "" },
   };
   const d = defaults[type] ?? defaults.short;
 
@@ -79,7 +83,7 @@ export async function addQuestion(
       correct: d.correct,
       difficulty: "medium",
       position,
-      points: 1,
+      points: type === "passage" ? 0 : 1,
     })
     .select("id")
     .single();

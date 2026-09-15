@@ -8,6 +8,10 @@ export const QuestionType = z.enum([
   "true_false",
   "multi_select",
   "cloze",
+  "highlight",
+  "match",
+  "word_bank",
+  "passage",
 ]);
 export type QuestionType = z.infer<typeof QuestionType>;
 

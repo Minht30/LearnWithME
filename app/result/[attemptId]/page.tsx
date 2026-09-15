@@ -52,13 +52,15 @@ export default async function ResultPage({ params }: PageProps<"/result/[attempt
   const { questions, answers, student } = data;
 
   const answerMap = new Map(answers.map((a) => [a.question_id, a]));
-  const gradedTotal = questions.length;
-  const scoreSum = questions.reduce(
+  // Passages don't count towards the score.
+  const graded = questions.filter((q) => q.type !== "passage");
+  const gradedTotal = graded.length || 1;
+  const scoreSum = graded.reduce(
     (acc, q) => acc + Number(answerMap.get(q.id)?.score ?? 0),
     0
   );
   const percent = Math.round((scoreSum / gradedTotal) * 100);
-  const correctCount = questions.filter((q) => answerMap.get(q.id)?.is_correct).length;
+  const correctCount = graded.filter((q) => answerMap.get(q.id)?.is_correct).length;
 
   return (
     <ResultView

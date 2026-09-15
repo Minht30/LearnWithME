@@ -27,6 +27,10 @@ const TYPES: { value: QuestionType; label: string; hint: string }[] = [
   { value: "true_false",   label: "True / False",          hint: "Quick binary check." },
   { value: "numeric",      label: "Number",                hint: "Exact numeric answer." },
   { value: "cloze",        label: "Fill in the blanks",    hint: "Use [BLANK] where the student types." },
+  { value: "word_bank",    label: "Word bank fill",        hint: "Cloze with words to pick from." },
+  { value: "highlight",    label: "Highlight words",       hint: "Student clicks matching words in the prompt." },
+  { value: "match",        label: "Match pairs",           hint: "Two columns to match." },
+  { value: "passage",      label: "Reading passage",       hint: "Non-scored text block above other questions." },
   { value: "short",        label: "Short answer",          hint: "Single line of text." },
   { value: "long",         label: "Written response",      hint: "Paragraph, teacher-graded." },
 ];
@@ -62,6 +66,10 @@ function newDraft(type: QuestionType = "mcq"): Draft {
   if (type === "multi_select") { seed.choices = ["", "", "", ""]; seed.correct = []; }
   if (type === "true_false")   { seed.correct = "true"; }
   if (type === "cloze")        { seed.prompt = "The capital of France is [BLANK]."; seed.correct = [""]; }
+  if (type === "word_bank")    { seed.prompt = "The capital of France is [BLANK]."; seed.choices = ["Paris", "Madrid"]; seed.correct = [""]; }
+  if (type === "highlight")    { seed.prompt = "The quick brown fox jumps over the lazy dog."; seed.correct = []; }
+  if (type === "match")        { seed.choices = ["Cat", "Dog"]; seed.correct = ["Meow", "Bark"]; }
+  if (type === "passage")      { seed.prompt = ""; seed.points = 0; }
   return seed;
 }
 
@@ -188,8 +196,25 @@ export default function ManualBuilderPage() {
     for (let i = 0; i < questions.length; i++) {
       const q = questions[i];
       const label = `Question ${i + 1}`;
+      if (q.type === "passage") {
+        if (!q.prompt.trim()) return `${label}: paste the passage text.`;
+        continue;
+      }
       if (!q.prompt.trim() && !q.imagePath) return `${label}: write a prompt or add an image.`;
-      if (q.type === "mcq") {
+      if (q.type === "highlight") {
+        const arr = Array.isArray(q.correct) ? q.correct : [];
+        if (arr.length === 0 || arr.some((w) => !w.trim())) return `${label}: list at least one word to click.`;
+      } else if (q.type === "match") {
+        const lefts = q.choices.filter((c) => c.trim());
+        const rights = (Array.isArray(q.correct) ? q.correct : []).filter((c) => c.trim());
+        if (lefts.length < 2 || rights.length !== lefts.length) return `${label}: fill in matching Left/Right pairs (at least 2).`;
+      } else if (q.type === "word_bank") {
+        if (!q.prompt.includes("[BLANK]")) return `${label}: word-bank prompt needs at least one [BLANK].`;
+        const blanks = q.prompt.match(/\[BLANK\]/g)?.length ?? 0;
+        const arr = Array.isArray(q.correct) ? q.correct : [];
+        if (arr.length !== blanks || arr.some((a) => !a.trim())) return `${label}: fill in ${blanks} expected answer${blanks === 1 ? "" : "s"}.`;
+        if (q.choices.filter((c) => c.trim()).length < blanks) return `${label}: word bank needs at least ${blanks} word${blanks === 1 ? "" : "s"}.`;
+      } else if (q.type === "mcq") {
         const filled = q.choices.filter((c) => c.trim());
         if (filled.length < 2) return `${label}: multiple choice needs at least 2 choices.`;
         const correct = String(q.correct);
@@ -231,16 +256,23 @@ export default function ManualBuilderPage() {
         questions: questions.map((q) => {
           const type = q.type;
           const choices =
-            type === "mcq" || type === "multi_select"
+            type === "mcq" || type === "multi_select" || type === "match" || type === "word_bank"
               ? q.choices.filter((c) => c.trim())
               : undefined;
           let correct: string | number | string[] = "";
-          if (type === "multi_select" || type === "cloze") {
-            correct = Array.isArray(q.correct) ? q.correct : [String(q.correct)];
+          if (
+            type === "multi_select" || type === "cloze" ||
+            type === "word_bank" || type === "highlight" || type === "match"
+          ) {
+            correct = Array.isArray(q.correct)
+              ? q.correct.map((s) => String(s).trim()).filter((s) => s.length > 0)
+              : [String(q.correct)];
           } else if (type === "numeric") {
             correct = String(q.correct).trim();
           } else if (type === "true_false") {
             correct = String(q.correct).toLowerCase() === "true" ? "true" : "false";
+          } else if (type === "passage") {
+            correct = "";
           } else {
             correct = String(q.correct).trim();
           }
@@ -668,6 +700,183 @@ function AnswerEditor({
           </button>
         </div>
       </>
+    );
+  }
+
+  if (q.type === "passage") {
+    return (
+      <p className="text-xs text-muted-foreground italic">
+        Reading passages don&apos;t need an answer. Add the passage text in the prompt above; questions that follow will reference it.
+      </p>
+    );
+  }
+
+  if (q.type === "highlight") {
+    const words = Array.isArray(q.correct) ? q.correct : [String(q.correct)];
+    return (
+      <div>
+        <Label className="mb-1.5 block text-xs uppercase tracking-wide font-semibold text-muted-foreground">
+          Words the student must click (must appear somewhere in the prompt)
+        </Label>
+        <div className="space-y-2">
+          {words.map((w, i) => (
+            <div key={i} className="flex items-center gap-2">
+              <span className="w-6 text-center font-mono text-xs text-muted-foreground">#{i + 1}</span>
+              <Input
+                value={w}
+                onChange={(e) => {
+                  const next = [...words];
+                  next[i] = e.target.value;
+                  onPatch({ correct: next });
+                }}
+                className="rounded-xl h-9"
+                placeholder="e.g. quick"
+              />
+              <button
+                type="button"
+                onClick={() => onPatch({ correct: words.filter((_, j) => j !== i) })}
+                aria-label="Remove word"
+                className="text-muted-foreground hover:text-foreground"
+              >
+                <XIcon className="h-4 w-4" />
+              </button>
+            </div>
+          ))}
+          <button
+            type="button"
+            onClick={() => onPatch({ correct: [...words, ""] })}
+            className="inline-flex items-center gap-1 rounded-full border px-3 py-1 text-xs font-semibold text-muted-foreground hover:text-foreground"
+          >
+            <Plus className="h-3 w-3" /> Add word
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (q.type === "match") {
+    const rights = Array.isArray(q.correct) ? q.correct : [String(q.correct)];
+    const rows = Math.max(q.choices.length, rights.length);
+    return (
+      <div>
+        <Label className="mb-1.5 block text-xs uppercase tracking-wide font-semibold text-muted-foreground">
+          Pairs — each row is Left ↔ Right (right column shuffled for the student)
+        </Label>
+        <div className="space-y-2">
+          {Array.from({ length: rows }).map((_, i) => (
+            <div key={i} className="flex items-center gap-2">
+              <Input
+                value={q.choices[i] ?? ""}
+                onChange={(e) => onPatchChoice(i, e.target.value)}
+                placeholder="Left side"
+                className="rounded-xl h-9 flex-1"
+              />
+              <span className="text-muted-foreground">↔</span>
+              <Input
+                value={rights[i] ?? ""}
+                onChange={(e) => {
+                  const next = [...rights];
+                  next[i] = e.target.value;
+                  onPatch({ correct: next });
+                }}
+                placeholder="Right side"
+                className="rounded-xl h-9 flex-1"
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  onPatch({
+                    choices: q.choices.filter((_, j) => j !== i),
+                    correct: rights.filter((_, j) => j !== i),
+                  });
+                }}
+                aria-label="Remove pair"
+                className="text-muted-foreground hover:text-foreground"
+              >
+                <XIcon className="h-4 w-4" />
+              </button>
+            </div>
+          ))}
+          <button
+            type="button"
+            onClick={() => onPatch({ choices: [...q.choices, ""], correct: [...rights, ""] })}
+            className="inline-flex items-center gap-1 rounded-full border px-3 py-1 text-xs font-semibold text-muted-foreground hover:text-foreground"
+          >
+            <Plus className="h-3 w-3" /> Add pair
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (q.type === "word_bank") {
+    const blanks = q.prompt.match(/\[BLANK\]/g)?.length ?? 0;
+    const arr = Array.isArray(q.correct) ? q.correct : [];
+    while (arr.length < blanks) arr.push("");
+    while (arr.length > blanks) arr.pop();
+    return (
+      <div className="space-y-4">
+        <div>
+          <Label className="mb-1.5 block text-xs uppercase tracking-wide font-semibold text-muted-foreground">
+            Expected answers ({blanks} blank{blanks === 1 ? "" : "s"} in your prompt)
+          </Label>
+          {blanks === 0 ? (
+            <p className="text-xs text-muted-foreground italic">
+              Add <code className="rounded bg-muted px-1 py-0.5">[BLANK]</code> to the prompt above first.
+            </p>
+          ) : (
+            <div className="space-y-2">
+              {arr.map((val, i) => (
+                <div key={i} className="flex items-center gap-2">
+                  <span className="w-8 shrink-0 text-center font-mono text-xs text-muted-foreground">#{i + 1}</span>
+                  <Input
+                    value={val}
+                    onChange={(e) => {
+                      const next = [...arr];
+                      next[i] = e.target.value;
+                      onPatch({ correct: next });
+                    }}
+                    placeholder="Expected text"
+                    className="rounded-xl h-9"
+                  />
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+        <div>
+          <Label className="mb-1.5 block text-xs uppercase tracking-wide font-semibold text-muted-foreground">
+            Word bank (student picks from these — include the answers plus distractors)
+          </Label>
+          <div className="space-y-2">
+            {q.choices.map((c, i) => (
+              <div key={i} className="flex items-center gap-2">
+                <Input
+                  value={c}
+                  onChange={(e) => onPatchChoice(i, e.target.value)}
+                  placeholder="Word"
+                  className="rounded-xl h-9"
+                />
+                <button
+                  type="button"
+                  onClick={() => onPatch({ choices: q.choices.filter((_, j) => j !== i) })}
+                  aria-label="Remove word"
+                  className="text-muted-foreground hover:text-foreground"
+                >
+                  <XIcon className="h-4 w-4" />
+                </button>
+              </div>
+            ))}
+            <button
+              type="button"
+              onClick={() => onPatch({ choices: [...q.choices, ""] })}
+              className="inline-flex items-center gap-1 rounded-full border px-3 py-1 text-xs font-semibold text-muted-foreground hover:text-foreground"
+            >
+              <Plus className="h-3 w-3" /> Add bank word
+            </button>
+          </div>
+        </div>
+      </div>
     );
   }
 
