@@ -11,10 +11,11 @@ import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 import {
   Plus, Save, Trash2, Sparkles, Loader2, ArrowLeft, Upload, FileText,
-  Check, X as XIcon, ImagePlus,
+  Check, X as XIcon, ImagePlus, ImageOff, Camera,
 } from "lucide-react";
 import { createManualTest } from "@/app/actions/create-manual-test";
 import { parseTestFromDoc } from "@/app/actions/parse-test-doc";
+import { uploadDraftImage } from "@/app/actions/question-media";
 import type { QuestionType, Difficulty, Question } from "@/lib/schemas/question";
 
 const SUBJECTS = ["Math","English","French","Science","Physics","Chemistry","Biology","History","Geography","Social Studies","Other"];
@@ -40,6 +41,9 @@ type Draft = {
   rubric: string;
   difficulty: Difficulty;
   points: number;
+  imagePath: string | null;
+  imageUrl: string | null;
+  imageUploading?: boolean;
 };
 
 function newDraft(type: QuestionType = "mcq"): Draft {
@@ -51,6 +55,8 @@ function newDraft(type: QuestionType = "mcq"): Draft {
     rubric: "",
     difficulty: "medium",
     points: 1,
+    imagePath: null,
+    imageUrl: null,
   };
   if (type === "mcq")          { seed.choices = ["", "", "", ""]; seed.correct = ""; seed.prompt = ""; }
   if (type === "multi_select") { seed.choices = ["", "", "", ""]; seed.correct = []; }
@@ -71,6 +77,8 @@ function questionToDraft(q: Question): Draft {
     rubric: q.rubric ?? "",
     difficulty: q.difficulty,
     points: q.points ?? 1,
+    imagePath: q.image_path ?? null,
+    imageUrl: null,
   };
 }
 
@@ -115,6 +123,22 @@ export default function ManualBuilderPage() {
       return;
     }
     setQuestions((prev) => prev.filter((_, i) => i !== idx));
+  }
+  async function uploadImage(idx: number, file: File) {
+    patchQ(idx, { imageUploading: true });
+    const fd = new FormData();
+    fd.append("file", file);
+    const res = await uploadDraftImage(fd);
+    if (res.ok) {
+      patchQ(idx, { imagePath: res.path, imageUrl: res.url, imageUploading: false });
+      toast.success("Image added.");
+    } else {
+      patchQ(idx, { imageUploading: false });
+      toast.error(res.error);
+    }
+  }
+  function removeImage(idx: number) {
+    patchQ(idx, { imagePath: null, imageUrl: null });
   }
   function changeType(idx: number, nextType: QuestionType) {
     setQuestions((prev) => prev.map((q, i) => {
@@ -164,7 +188,7 @@ export default function ManualBuilderPage() {
     for (let i = 0; i < questions.length; i++) {
       const q = questions[i];
       const label = `Question ${i + 1}`;
-      if (!q.prompt.trim()) return `${label}: write the question.`;
+      if (!q.prompt.trim() && !q.imagePath) return `${label}: write a prompt or add an image.`;
       if (q.type === "mcq") {
         const filled = q.choices.filter((c) => c.trim());
         if (filled.length < 2) return `${label}: multiple choice needs at least 2 choices.`;
@@ -220,14 +244,16 @@ export default function ManualBuilderPage() {
           } else {
             correct = String(q.correct).trim();
           }
+          const promptText = q.prompt.trim() || (q.imagePath ? "Look at the image." : "");
           return {
             type,
-            prompt: q.prompt.trim(),
+            prompt: promptText,
             choices,
             correct,
             rubric: q.rubric.trim() || undefined,
             difficulty: q.difficulty,
             points: q.points,
+            image_path: q.imagePath ?? undefined,
           };
         }),
       });
@@ -359,6 +385,8 @@ export default function ManualBuilderPage() {
             onPatchChoice={(ci, v) => patchChoice(i, ci, v)}
             onRemove={() => removeQ(i)}
             onChangeType={(t) => changeType(i, t)}
+            onUploadImage={(f) => uploadImage(i, f)}
+            onRemoveImage={() => removeImage(i)}
           />
         ))}
       </div>
@@ -388,7 +416,7 @@ export default function ManualBuilderPage() {
 }
 
 function DraftCard({
-  q, index, onPatch, onPatchChoice, onRemove, onChangeType,
+  q, index, onPatch, onPatchChoice, onRemove, onChangeType, onUploadImage, onRemoveImage,
 }: {
   q: Draft;
   index: number;
@@ -396,7 +424,10 @@ function DraftCard({
   onPatchChoice: (ci: number, v: string) => void;
   onRemove: () => void;
   onChangeType: (t: QuestionType) => void;
+  onUploadImage: (file: File) => void;
+  onRemoveImage: () => void;
 }) {
+  const fileRef = useRef<HTMLInputElement | null>(null);
   return (
     <Card className="lwm-card p-5">
       <div className="mb-3 flex items-start justify-between gap-3 flex-wrap">
@@ -440,14 +471,88 @@ function DraftCard({
 
       <Label className="mb-1.5 block text-xs uppercase tracking-wide font-semibold text-muted-foreground">
         {q.type === "cloze" ? "Prompt (use [BLANK] where students type)" : "Question"}
+        {q.imagePath && !q.prompt.trim() && (
+          <span className="ml-2 font-normal normal-case tracking-normal text-[10px] text-muted-foreground italic">
+            optional if you have an image
+          </span>
+        )}
       </Label>
       <Textarea
         rows={q.type === "cloze" ? 3 : 2}
         value={q.prompt}
         onChange={(e) => onPatch({ prompt: e.target.value })}
-        placeholder={q.type === "cloze" ? "The capital of France is [BLANK]." : "What are you asking? Supports **bold**, *italic*, $x^2$ math."}
+        placeholder={
+          q.imagePath
+            ? "e.g. Look at the picture and describe what you see."
+            : q.type === "cloze"
+            ? "The capital of France is [BLANK]."
+            : "What are you asking? Supports **bold**, *italic*, $x^2$ math."
+        }
         className="mb-4 rounded-xl"
       />
+
+      <div className="mb-4">
+        <input
+          ref={fileRef}
+          type="file"
+          accept="image/*"
+          capture="environment"
+          className="hidden"
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            if (f) onUploadImage(f);
+            e.target.value = "";
+          }}
+        />
+        {q.imagePath && q.imageUrl ? (
+          <div className="flex items-start gap-3 rounded-xl border-2 border-border p-2">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={q.imageUrl} alt="" className="h-28 w-28 shrink-0 rounded-lg object-cover" />
+            <div className="flex flex-col gap-1">
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Question image</p>
+              <div className="flex gap-1">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() => fileRef.current?.click()}
+                  className="rounded-full"
+                >
+                  <Upload className="mr-1 h-3 w-3" /> Replace
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  onClick={onRemoveImage}
+                  className="rounded-full text-muted-foreground"
+                >
+                  <ImageOff className="mr-1 h-3 w-3" /> Remove
+                </Button>
+              </div>
+              <p className="text-[11px] text-muted-foreground">Students see this above the prompt.</p>
+            </div>
+          </div>
+        ) : (
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => fileRef.current?.click()}
+              disabled={q.imageUploading}
+              className="inline-flex items-center gap-1.5 rounded-full border-2 border-dashed border-[var(--brand)]/40 bg-[color-mix(in_oklab,var(--brand)_5%,transparent)] px-4 py-2 text-sm font-semibold text-[var(--brand)] hover:border-[var(--brand)] disabled:opacity-60"
+            >
+              {q.imageUploading ? (
+                <><Loader2 className="h-4 w-4 animate-spin" /> Uploading…</>
+              ) : (
+                <><ImagePlus className="h-4 w-4" /> Add image</>
+              )}
+            </button>
+            <span className="self-center text-xs text-muted-foreground inline-flex items-center gap-1">
+              <Camera className="h-3 w-3" /> JPG, PNG, WebP up to 8 MB
+            </span>
+          </div>
+        )}
+      </div>
 
       <AnswerEditor q={q} onPatch={onPatch} onPatchChoice={onPatchChoice} />
     </Card>

@@ -65,6 +65,36 @@ export async function uploadQuestionImage(formData: FormData): Promise<UploadIma
   return { ok: true, url: signed.signedUrl, path };
 }
 
+/**
+ * Upload an image before the question row exists (manual builder flow).
+ * Stored under `question-media/drafts/<teacherId>/<uuid>.<ext>`. Not
+ * associated with any question yet; the path is returned so the client
+ * can send it along when createManualTest inserts the question.
+ */
+export async function uploadDraftImage(formData: FormData): Promise<UploadImageResult> {
+  const teacherId = await requireTeacherId();
+  const file = formData.get("file");
+  if (!(file instanceof File)) return { ok: false, error: "No file provided." };
+  if (file.size > MAX_BYTES) return { ok: false, error: "Image too large (8 MB max)." };
+  if (!ALLOWED.has(file.type)) return { ok: false, error: "PNG, JPG, GIF, WebP, or SVG only." };
+
+  const admin = createAdminClient();
+  const ext = EXT[file.type] ?? "bin";
+  const path = `drafts/${teacherId}/${crypto.randomUUID()}.${ext}`;
+  const buffer = new Uint8Array(await file.arrayBuffer());
+
+  const { error: upErr } = await admin.storage
+    .from(BUCKET)
+    .upload(path, buffer, { contentType: file.type, upsert: true });
+  if (upErr) return { ok: false, error: upErr.message };
+
+  const { data: signed } = await admin.storage
+    .from(BUCKET)
+    .createSignedUrl(path, 60 * 60 * 24 * 30);
+  if (!signed?.signedUrl) return { ok: false, error: "Could not mint preview URL." };
+  return { ok: true, url: signed.signedUrl, path };
+}
+
 export async function removeQuestionImage(
   testId: string,
   questionId: string

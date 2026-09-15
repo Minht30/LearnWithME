@@ -63,6 +63,7 @@ export async function createManualTest(
     strand: q.strand ?? null,
     position: i + 1,
     points: q.points ?? 1,
+    image_path: q.image_path ?? null,
   }));
   const { error: qErr } = await admin.from("questions").insert(rows);
   if (qErr) {
