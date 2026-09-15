@@ -23,22 +23,10 @@ values ('question-media', 'question-media', false)
 on conflict (id) do nothing;
 
 -- =========================================================================
--- If `type` was constrained to the old enum values via a CHECK, extend it.
--- Postgres migrations from the original schema used a plain text column so
--- no ENUM alter is needed. If a check constraint exists we drop and recreate.
+-- Recreate the type CHECK constraint so the new values are allowed.
+-- Drops by NAME (any prior version) then re-adds. Safe to re-run.
 -- =========================================================================
-do $$
-declare
-  con_name text;
-begin
-  select conname into con_name
-    from pg_constraint
-    where conrelid = 'public.questions'::regclass
-      and pg_get_constraintdef(oid) ilike '%questions_type_check%';
-  if con_name is not null then
-    execute format('alter table public.questions drop constraint %I', con_name);
-  end if;
-end $$;
+alter table public.questions drop constraint if exists questions_type_check;
 
 alter table public.questions
   add constraint questions_type_check
