@@ -25,6 +25,8 @@ export type DbQuestion = {
   difficulty: Difficulty;
   strand: string | null;
   position: number;
+  points: number;
+  image_path: string | null;
   created_at: string;
 };
 

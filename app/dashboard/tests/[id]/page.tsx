@@ -8,10 +8,11 @@ import type { DbTest, DbQuestion } from "@/lib/db/types";
 import { Card } from "@/components/ui/card";
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { Download, ArrowLeft, Clock } from "lucide-react";
+import { Download, ArrowLeft, Clock, Eye } from "lucide-react";
 import { QuestionList } from "./question-list";
 import { ShareCard } from "./share-card";
 import { AssignCard } from "./assign-card";
+import { signQuestionImage } from "@/app/actions/question-media";
 
 async function loadTest(id: string) {
   const teacherId = await requireTeacherId();
@@ -41,9 +42,17 @@ async function loadTest(id: string) {
     class_name: classNameById.get(s.class_id) ?? "",
   }));
 
+  const questionsWithMedia = await Promise.all(
+    ((questions ?? []) as DbQuestion[]).map(async (q) => {
+      if (!q.image_path) return { ...q, imageUrl: null };
+      const url = await signQuestionImage(q.image_path);
+      return { ...q, imageUrl: url };
+    })
+  );
+
   return {
     test: test as DbTest,
-    questions: (questions ?? []) as DbQuestion[],
+    questions: questionsWithMedia,
     joinCode:
       classTest?.classes && !Array.isArray(classTest.classes)
         ? (classTest.classes as { join_code: string }).join_code
@@ -87,7 +96,15 @@ export default async function TestDetailPage({ params }: PageProps<"/dashboard/t
             <p className="mt-2 text-sm text-muted-foreground italic">&ldquo;{test.source_prompt}&rdquo;</p>
           )}
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
+          <a
+            href={`/dashboard/tests/${test.id}/preview`}
+            className={cn(buttonVariants({ variant: "outline" }), "rounded-full")}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            <Eye className="mr-1 h-4 w-4" /> Preview as student
+          </a>
           <a
             href={`/api/tests/${test.id}/pdf?withKey=0`}
             className={cn(buttonVariants({ variant: "outline" }), "rounded-full")}

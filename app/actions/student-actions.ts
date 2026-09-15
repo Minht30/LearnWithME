@@ -107,6 +107,8 @@ export async function saveAnswer(
 /**
  * Grade a single response. Returns is_correct, score, feedback.
  */
+const normalize = (s: string) => s.toLowerCase().replace(/\s+/g, " ").trim();
+
 async function gradeOne(
   q: DbQuestion,
   response: string
@@ -120,6 +122,59 @@ async function gradeOne(
       is_correct: ok,
       score: ok ? 1 : 0,
       feedback: ok ? "Correct" : `Correct answer: ${correct}`,
+    };
+  }
+
+  if (q.type === "true_false") {
+    const correct = String(q.correct).toLowerCase() === "true" ? "true" : "false";
+    const ok = trimmed.toLowerCase() === correct;
+    return {
+      is_correct: ok,
+      score: ok ? 1 : 0,
+      feedback: ok ? "Correct" : `Correct answer: ${correct}`,
+    };
+  }
+
+  if (q.type === "multi_select") {
+    // response comes in as JSON-serialized array of strings
+    const correctArr = (Array.isArray(q.correct) ? q.correct : [String(q.correct)])
+      .map((c) => normalize(c))
+      .sort();
+    let studentArr: string[] = [];
+    try {
+      const parsed = JSON.parse(trimmed || "[]");
+      if (Array.isArray(parsed)) studentArr = parsed.map((c) => normalize(String(c))).sort();
+    } catch {
+      studentArr = trimmed ? [normalize(trimmed)] : [];
+    }
+    const ok =
+      correctArr.length === studentArr.length &&
+      correctArr.every((c, i) => c === studentArr[i]);
+    return {
+      is_correct: ok,
+      score: ok ? 1 : 0,
+      feedback: ok ? "Correct" : `Expected: ${(Array.isArray(q.correct) ? q.correct : [q.correct]).join(", ")}`,
+    };
+  }
+
+  if (q.type === "cloze") {
+    const correctArr = (Array.isArray(q.correct) ? q.correct : [String(q.correct)]).map(normalize);
+    let studentArr: string[] = [];
+    try {
+      const parsed = JSON.parse(trimmed || "[]");
+      if (Array.isArray(parsed)) studentArr = parsed.map((c) => normalize(String(c)));
+    } catch { /* ignore */ }
+    // Pad to correct length so partial-credit denominator is stable.
+    while (studentArr.length < correctArr.length) studentArr.push("");
+    const matches = correctArr.filter((c, i) => c === studentArr[i]).length;
+    const score = correctArr.length ? matches / correctArr.length : 0;
+    const ok = matches === correctArr.length;
+    return {
+      is_correct: ok,
+      score,
+      feedback: ok
+        ? "Every blank correct!"
+        : `Filled ${matches} of ${correctArr.length} correctly.`,
     };
   }
 

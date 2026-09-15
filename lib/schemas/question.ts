@@ -1,6 +1,14 @@
 import { z } from "zod";
 
-export const QuestionType = z.enum(["mcq", "short", "long", "numeric"]);
+export const QuestionType = z.enum([
+  "mcq",
+  "short",
+  "long",
+  "numeric",
+  "true_false",
+  "multi_select",
+  "cloze",
+]);
 export type QuestionType = z.infer<typeof QuestionType>;
 
 export const Difficulty = z.enum(["easy", "medium", "hard"]);
@@ -18,12 +26,18 @@ export const Question = z.object({
   prompt: z.string().min(1),
   choices: nullish(z.array(z.string())),
   correct: z
-    .union([z.string(), z.number(), z.array(z.string())])
+    .union([z.string(), z.number(), z.array(z.string()), z.boolean()])
     .nullable()
-    .transform((v) => (v == null ? "" : v)),
+    .transform((v) => {
+      if (v == null) return "";
+      if (typeof v === "boolean") return v ? "true" : "false";
+      return v;
+    }),
   rubric: nullish(z.string()),
   difficulty: Difficulty.default("medium"),
   strand: nullish(z.string()),
+  points: z.number().int().min(1).max(100).default(1).optional(),
+  image_path: nullish(z.string()),
 });
 export type Question = z.infer<typeof Question>;
 

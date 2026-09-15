@@ -16,20 +16,24 @@ import { AppHeaderControls, AppBrand } from "@/components/ui/app-header";
 import { StreakBadge } from "@/components/ui/streak-badge";
 import { Mascot, type MascotMood } from "@/components/ui/mascot";
 import type { DbAttempt, DbQuestion, DbTest } from "@/lib/db/types";
+import { RichText } from "@/components/ui/rich-text";
+import { parseCloze } from "@/lib/render/rich-text";
 import {
   StickyNote, Send, Play, Check, Sparkles, Camera, Clock, ListChecks, Info,
   Upload, FileText, X as XIcon, Loader2, Wand2,
 } from "lucide-react";
 
 type WorkFile = { url: string; mime: string; path: string };
+type QuestionWithMedia = DbQuestion & { imageUrl?: string | null };
 
 type Props = {
   attempt: DbAttempt;
   test: DbTest;
-  questions: DbQuestion[];
+  questions: QuestionWithMedia[];
   initialResponses: Record<string, string>;
   initialNotes: Record<string, string>;
   initialWork: Record<string, WorkFile>;
+  isPreview?: boolean;
 };
 
 type LocalGrade = {
@@ -57,6 +61,8 @@ function normalizeCorrect(v: unknown): string {
   return String(v);
 }
 
+const norm = (s: string) => s.toLowerCase().replace(/\s+/g, " ").trim();
+
 function gradeLocally(q: DbQuestion, response: string): LocalGrade {
   const trimmed = (response ?? "").trim();
   const correctAnswer = normalizeCorrect(q.correct);
@@ -67,6 +73,34 @@ function gradeLocally(q: DbQuestion, response: string): LocalGrade {
       isCorrect: ok,
       correctAnswer,
       feedback: ok ? stableEncouragement(q.id) : "Not quite — here's the right answer.",
+    };
+  }
+  if (q.type === "true_false") {
+    const ok = trimmed.toLowerCase() === correctAnswer.toLowerCase();
+    return { isCorrect: ok, correctAnswer, feedback: ok ? stableEncouragement(q.id) : "Not quite." };
+  }
+  if (q.type === "multi_select") {
+    const correctArr = (Array.isArray(q.correct) ? q.correct : [String(q.correct)]).map(norm).sort();
+    let studentArr: string[] = [];
+    try { const p = JSON.parse(trimmed || "[]"); if (Array.isArray(p)) studentArr = p.map((x) => norm(String(x))).sort(); } catch { /* empty */ }
+    const ok = correctArr.length === studentArr.length && correctArr.every((c, i) => c === studentArr[i]);
+    return {
+      isCorrect: ok,
+      correctAnswer,
+      feedback: ok ? stableEncouragement(q.id) : "Check the boxes again.",
+    };
+  }
+  if (q.type === "cloze") {
+    const correctArr = (Array.isArray(q.correct) ? q.correct : [String(q.correct)]).map(norm);
+    let studentArr: string[] = [];
+    try { const p = JSON.parse(trimmed || "[]"); if (Array.isArray(p)) studentArr = p.map((x) => norm(String(x))); } catch { /* empty */ }
+    while (studentArr.length < correctArr.length) studentArr.push("");
+    const matches = correctArr.filter((c, i) => c === studentArr[i]).length;
+    const ok = matches === correctArr.length;
+    return {
+      isCorrect: ok,
+      correctAnswer,
+      feedback: ok ? stableEncouragement(q.id) : `Got ${matches} of ${correctArr.length} blanks.`,
     };
   }
   if (q.type === "numeric") {
@@ -88,7 +122,7 @@ function gradeLocally(q: DbQuestion, response: string): LocalGrade {
 }
 
 export function PracticeRoom({
-  attempt, test, questions, initialResponses, initialNotes, initialWork,
+  attempt, test, questions, initialResponses, initialNotes, initialWork, isPreview,
 }: Props) {
   const [phase, setPhase] = useState<Phase>("briefing");
   const [idx, setIdx] = useState(0);
@@ -158,12 +192,13 @@ export function PracticeRoom({
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const scheduleSave = useCallback(
     (questionId: string, response: string, note: string | null) => {
+      if (isPreview) return;
       if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
       saveTimeoutRef.current = setTimeout(() => {
         saveAnswer(attempt.id, questionId, response, note);
       }, 600);
     },
-    [attempt.id]
+    [attempt.id, isPreview]
   );
 
   function setResponse(qid: string, val: string) {
@@ -176,6 +211,11 @@ export function PracticeRoom({
   }
 
   async function uploadWork(qid: string, file: File) {
+    if (isPreview) {
+      // In preview: just fake-attach so the check button unlocks
+      setWorkUploads((prev) => ({ ...prev, [qid]: { url: URL.createObjectURL(file), mime: file.type, path: "preview" } }));
+      return;
+    }
     setUploading((prev) => ({ ...prev, [qid]: true }));
     const fd = new FormData();
     fd.append("file", file);
@@ -196,11 +236,15 @@ export function PracticeRoom({
   function onCheck() {
     if (!q) return;
     const response = responses[q.id] ?? "";
-    if (!response.trim()) { toast.error("Type an answer first."); return; }
-    if (!workUploads[q.id]) { toast.error("Upload a photo of your work first."); return; }
+    if (!response.trim()) { toast.error("Answer the question first."); return; }
+    const requiresWork = q.type === "numeric" || q.type === "short" || q.type === "long";
+    if (requiresWork && !workUploads[q.id]) {
+      toast.error("Upload a photo of your work first.");
+      return;
+    }
 
     if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
-    saveAnswer(attempt.id, q.id, response, notes[q.id] ?? null);
+    if (!isPreview) saveAnswer(attempt.id, q.id, response, notes[q.id] ?? null);
 
     const grade = gradeLocally(q, response);
     setChecked((prev) => ({ ...prev, [q.id]: grade }));
@@ -245,6 +289,11 @@ export function PracticeRoom({
 
   function onSubmit() {
     if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+    if (isPreview) {
+      toast.success("Preview finished — nothing was saved.");
+      window.close();
+      return;
+    }
     setPhase("submitting");
     playSubmit(sound);
     startTransition(async () => {
@@ -428,12 +477,62 @@ export function PracticeRoom({
             transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
             className="lwm-card lwm-scanlines p-6 sm:p-8"
           >
-            <p className="font-display text-2xl leading-relaxed sm:text-3xl font-semibold">
-              {q.prompt}
-            </p>
+            {q.type !== "cloze" && (
+              <RichText
+                html={q.prompt}
+                className="font-display text-2xl leading-relaxed sm:text-3xl font-semibold"
+              />
+            )}
+
+            {q.imageUrl && (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={q.imageUrl}
+                alt=""
+                className="mt-4 max-h-80 rounded-2xl border bg-background object-contain"
+              />
+            )}
 
             <div className="mt-6">
-              {q.type === "mcq" && q.choices ? (
+              {q.type === "cloze" ? (
+                <ClozeAnswer
+                  q={q}
+                  value={responses[q.id] ?? ""}
+                  disabled={isChecked}
+                  onChange={(v) => setResponse(q.id, v)}
+                />
+              ) : q.type === "true_false" ? (
+                <div className="flex gap-3" role="radiogroup" aria-label="True or False">
+                  {["true", "false"].map((v) => {
+                    const selected = responses[q.id] === v;
+                    return (
+                      <motion.button
+                        key={v}
+                        type="button"
+                        role="radio"
+                        aria-checked={selected}
+                        whileTap={{ scale: 0.96 }}
+                        disabled={isChecked}
+                        onClick={() => setResponse(q.id, v)}
+                        className={`h-14 flex-1 rounded-2xl border-2 px-6 text-lg font-bold capitalize transition-all ${
+                          selected
+                            ? "border-[var(--brand)] bg-[color-mix(in_oklab,var(--brand)_15%,transparent)] shadow-[0_0_0_3px_color-mix(in_oklab,var(--brand)_18%,transparent)]"
+                            : "border-border bg-muted/30 hover:border-[var(--brand)]"
+                        }`}
+                      >
+                        {v}
+                      </motion.button>
+                    );
+                  })}
+                </div>
+              ) : q.type === "multi_select" && q.choices ? (
+                <MultiSelectAnswer
+                  q={q}
+                  value={responses[q.id] ?? ""}
+                  disabled={isChecked}
+                  onChange={(v) => setResponse(q.id, v)}
+                />
+              ) : q.type === "mcq" && q.choices ? (
                 <div className="grid gap-2.5 sm:grid-cols-2" role="radiogroup" aria-label="Answer choices">
                   {q.choices.map((c, ci) => {
                     const selected = responses[q.id] === String(c);
@@ -466,7 +565,7 @@ export function PracticeRoom({
                         <span className="mr-3 inline-flex h-8 w-8 items-center justify-center rounded-full bg-background font-mono text-sm font-bold shadow-sm">
                           {String.fromCharCode(65 + ci)}
                         </span>
-                        {c}
+                        <RichText html={c} inline as="span" />
                       </motion.button>
                     );
                   })}
@@ -501,6 +600,7 @@ export function PracticeRoom({
               )}
             </div>
 
+            {(q.type === "numeric" || q.type === "short" || q.type === "long") && (
             <div className="mt-6">
               <div className="mb-2 flex items-center gap-2">
                 <div className="flex h-7 w-7 items-center justify-center rounded-full bg-[color-mix(in_oklab,var(--brand)_18%,transparent)] text-[color-mix(in_oklab,var(--brand)_90%,black)] dark:text-[var(--brand)]">
@@ -522,6 +622,7 @@ export function PracticeRoom({
                 })}
               />
             </div>
+            )}
 
             <AnimatePresence>
               {isChecked && grade && (
@@ -844,6 +945,97 @@ function StarBurst() {
             initial={{ x: 0, y: 0, opacity: 1, scale: 1 }}
             animate={{ x: dx, y: dy, opacity: 0, scale: 0.4 }}
             transition={{ duration: 0.7, ease: "easeOut" }}
+          />
+        );
+      })}
+    </div>
+  );
+}
+
+function parseArray(json: string): string[] {
+  try { const p = JSON.parse(json); return Array.isArray(p) ? p.map(String) : []; }
+  catch { return []; }
+}
+
+function MultiSelectAnswer({
+  q, value, disabled, onChange,
+}: {
+  q: QuestionWithMedia;
+  value: string;
+  disabled: boolean;
+  onChange: (v: string) => void;
+}) {
+  const chosen = parseArray(value);
+  function toggle(c: string) {
+    const next = chosen.includes(c) ? chosen.filter((x) => x !== c) : [...chosen, c];
+    onChange(JSON.stringify(next));
+  }
+  return (
+    <div className="grid gap-2.5 sm:grid-cols-2" role="group" aria-label="Check every correct answer">
+      {(q.choices ?? []).map((c, ci) => {
+        const selected = chosen.includes(c);
+        return (
+          <motion.button
+            key={ci}
+            type="button"
+            role="checkbox"
+            aria-checked={selected}
+            whileTap={{ scale: 0.96 }}
+            whileHover={{ y: -2 }}
+            disabled={disabled}
+            onClick={() => toggle(c)}
+            className={`text-left rounded-2xl border-2 px-4 py-3.5 text-base transition-all disabled:cursor-default flex items-center gap-3 ${
+              selected
+                ? "border-[var(--brand)] bg-[color-mix(in_oklab,var(--brand)_15%,transparent)]"
+                : "border-border/60 bg-muted/30 hover:border-[var(--brand)]"
+            }`}
+          >
+            <span className={`inline-flex h-6 w-6 items-center justify-center rounded-md border-2 shrink-0 ${
+              selected
+                ? "border-[var(--brand)] bg-[var(--brand)] text-white"
+                : "border-border bg-background"
+            }`}>
+              {selected && <Check className="h-4 w-4" strokeWidth={3} />}
+            </span>
+            <RichText html={c} inline as="span" />
+          </motion.button>
+        );
+      })}
+    </div>
+  );
+}
+
+function ClozeAnswer({
+  q, value, disabled, onChange,
+}: {
+  q: QuestionWithMedia;
+  value: string;
+  disabled: boolean;
+  onChange: (v: string) => void;
+}) {
+  const segments = parseCloze(q.prompt);
+  const blanks = parseArray(value);
+  const expectedCount = segments.filter((s) => s.kind === "blank").length;
+  while (blanks.length < expectedCount) blanks.push("");
+
+  function setBlank(i: number, v: string) {
+    const next = [...blanks];
+    next[i] = v;
+    onChange(JSON.stringify(next));
+  }
+
+  return (
+    <div className="font-display text-xl leading-loose sm:text-2xl">
+      {segments.map((s, i) => {
+        if (s.kind === "text") return <span key={i} dangerouslySetInnerHTML={{ __html: s.html }} />;
+        return (
+          <Input
+            key={i}
+            value={blanks[s.index] ?? ""}
+            onChange={(e) => setBlank(s.index, e.target.value)}
+            disabled={disabled}
+            aria-label={`Blank ${s.index + 1}`}
+            className="inline-block h-10 mx-1 w-32 rounded-xl border-2 border-[var(--brand)]/40 bg-[color-mix(in_oklab,var(--brand)_5%,transparent)] text-base text-center font-medium"
           />
         );
       })}

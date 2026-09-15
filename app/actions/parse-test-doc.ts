@@ -145,6 +145,7 @@ export async function parseTestFromDoc(formData: FormData): Promise<ParseResult>
       rubric: q.rubric?.trim() || undefined,
       difficulty: q.difficulty as Difficulty,
       strand: q.strand,
+      image_path: undefined,
     })),
   };
 
