@@ -109,13 +109,13 @@ export function TestPdf({
         <View style={styles.headerRow} fixed>
           <Text style={styles.brand}>LearnWithMe</Text>
           <Text style={styles.meta}>
-            {test.subject} · Grade {test.grade} · {test.duration_min} min
+            {test.subject} · Grade {test.grade} · {test.duration_min > 0 ? `${test.duration_min} min` : "Untimed"}
             {withKey ? " · TEACHER COPY (answer key)" : ""}
           </Text>
         </View>
 
         <Text style={styles.title}>{test.title}</Text>
-        <Text style={styles.subtitle}>{questions.length} questions · {test.duration_min} minutes</Text>
+        <Text style={styles.subtitle}>{questions.length} questions · {test.duration_min > 0 ? `${test.duration_min} minutes` : "No time limit"}</Text>
 
         {!withKey && (
           <View style={styles.nameRow}>

@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Fredoka, Inter, JetBrains_Mono, Comic_Neue } from "next/font/google";
 import { Toaster } from "@/components/ui/sonner";
 import { ThemeInit } from "@/components/ui/theme-init";
@@ -32,6 +32,13 @@ export const metadata: Metadata = {
   title: "LearnWithMe · Tests, built for teachers",
   description:
     "A K-12 Canadian curriculum test generator. Describe your test, hand out a PDF, and give your class a practice environment before exam day.",
+};
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 5,
+  viewportFit: "cover",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

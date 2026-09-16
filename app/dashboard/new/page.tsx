@@ -7,9 +7,9 @@ import { generateTest } from "@/app/actions/generate-test";
 import { extractDocumentText } from "@/app/actions/extract-doc";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
+import { NumberStepper } from "@/components/ui/number-stepper";
 import { toast } from "sonner";
 import { Sparkles, Loader2, Paperclip, X, Pencil } from "lucide-react";
 import type { QuestionType } from "@/lib/schemas/question";
@@ -44,6 +44,7 @@ export default function NewTestPage() {
   const [subject, setSubject] = useState("Math");
   const [grade, setGrade] = useState("4");
   const [count, setCount] = useState(20);
+  const [timeLimitOn, setTimeLimitOn] = useState(true);
   const [duration, setDuration] = useState(30);
   const [types, setTypes] = useState<QuestionType[]>(["mcq", "short"]);
   const [prompt, setPrompt] = useState(
@@ -84,7 +85,7 @@ export default function NewTestPage() {
           subject,
           grade,
           count,
-          duration_min: duration,
+          duration_min: timeLimitOn ? duration : 0,
           types,
           prompt,
         },
@@ -148,27 +149,61 @@ export default function NewTestPage() {
           </div>
         </div>
 
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <Label className="mb-1.5 block">Number of questions</Label>
-            <Input
-              type="number"
-              min={1}
-              max={100}
-              value={count}
-              onChange={(e) => setCount(Number(e.target.value) || 20)}
-            />
+        <div>
+          <Label className="mb-1.5 block">Number of questions</Label>
+          <NumberStepper
+            value={count}
+            onChange={setCount}
+            min={1}
+            max={100}
+            ariaLabel="Number of questions"
+            className="max-w-[220px]"
+          />
+        </div>
+
+        <div>
+          <div className="mb-1.5 flex items-center justify-between gap-3 flex-wrap">
+            <Label>Time limit</Label>
+            <div className="inline-flex rounded-full border border-input p-0.5 bg-transparent">
+              <button
+                type="button"
+                onClick={() => setTimeLimitOn(true)}
+                className={`px-3 h-8 rounded-full text-xs font-semibold transition-colors ${
+                  timeLimitOn
+                    ? "bg-[var(--brand)] text-white"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                Timed
+              </button>
+              <button
+                type="button"
+                onClick={() => setTimeLimitOn(false)}
+                className={`px-3 h-8 rounded-full text-xs font-semibold transition-colors ${
+                  !timeLimitOn
+                    ? "bg-[var(--brand)] text-white"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                Untimed
+              </button>
+            </div>
           </div>
-          <div>
-            <Label className="mb-1.5 block">Duration (minutes)</Label>
-            <Input
-              type="number"
+          {timeLimitOn ? (
+            <NumberStepper
+              value={duration}
+              onChange={setDuration}
               min={5}
               max={240}
-              value={duration}
-              onChange={(e) => setDuration(Number(e.target.value) || 30)}
+              ariaLabel="Duration in minutes"
+              suffix="min"
+              className="max-w-[220px]"
             />
-          </div>
+          ) : (
+            <p className="text-xs text-muted-foreground">
+              No timer — students get a stopwatch instead of a countdown.
+            </p>
+          )}
         </div>
 
         <div>

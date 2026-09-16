@@ -10,7 +10,8 @@ const ManualTest = z.object({
   title: z.string().min(1, "Give your test a title."),
   subject: z.string().min(1),
   grade: z.string().min(1),
-  duration_min: z.number().int().min(1).max(240),
+  // 0 = untimed
+  duration_min: z.number().int().min(0).max(240),
   questions: z.array(Question).min(1, "Add at least one question."),
 });
 

@@ -86,7 +86,7 @@ export default async function TestDetailPage({ params }: PageProps<"/dashboard/t
             <span className="rounded bg-muted px-1.5 py-0.5 font-mono">Grade {test.grade}</span>
             <span className="flex items-center gap-1">
               <Clock className="h-3 w-3" />
-              {test.duration_min} min
+              {test.duration_min && test.duration_min > 0 ? `${test.duration_min} min` : "Untimed"}
             </span>
             <span aria-hidden>·</span>
             <span>{questions.length} questions</span>

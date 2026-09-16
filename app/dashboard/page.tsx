@@ -94,7 +94,7 @@ function TestCard({ test }: { test: DbTest }) {
         <div className="mt-4 flex items-center gap-3 text-xs text-muted-foreground">
           <span className="flex items-center gap-1">
             <Clock className="h-3 w-3" />
-            {test.duration_min} min
+            {test.duration_min && test.duration_min > 0 ? `${test.duration_min} min` : "Untimed"}
           </span>
           <span>·</span>
           <span>{new Date(test.created_at).toLocaleDateString()}</span>

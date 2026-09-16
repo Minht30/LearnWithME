@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition, useRef } from "react";
+import { useState, useTransition, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Card } from "@/components/ui/card";
@@ -8,10 +8,12 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
+import { NumberStepper } from "@/components/ui/number-stepper";
+import { ImagePicker } from "@/components/ui/image-picker";
 import { toast } from "sonner";
 import {
   Plus, Save, Trash2, Sparkles, Loader2, ArrowLeft, Upload, FileText,
-  Check, X as XIcon, ImagePlus, ImageOff, Camera,
+  Check, X as XIcon, ImageOff, GraduationCap,
 } from "lucide-react";
 import { createManualTest } from "@/app/actions/create-manual-test";
 import { parseTestFromDoc } from "@/app/actions/parse-test-doc";
@@ -48,6 +50,8 @@ type Draft = {
   imagePath: string | null;
   imageUrl: string | null;
   imageUploading?: boolean;
+  /** true = teacher will grade this manually; correct answer is optional */
+  manualGrade?: boolean;
 };
 
 function newDraft(type: QuestionType = "mcq"): Draft {
@@ -77,6 +81,7 @@ function questionToDraft(q: Question): Draft {
   const correct: string | string[] = Array.isArray(q.correct)
     ? q.correct.map(String)
     : String(q.correct);
+  const isEmpty = Array.isArray(correct) ? correct.every((c) => !c.trim()) : !correct.trim();
   return {
     type: q.type,
     prompt: q.prompt,
@@ -87,6 +92,7 @@ function questionToDraft(q: Question): Draft {
     points: q.points ?? 1,
     imagePath: q.image_path ?? null,
     imageUrl: null,
+    manualGrade: isEmpty && q.type !== "passage" && q.type !== "true_false",
   };
 }
 
@@ -99,6 +105,7 @@ export default function ManualBuilderPage() {
   const [title, setTitle] = useState("");
   const [subject, setSubject] = useState("Math");
   const [grade, setGrade] = useState("4");
+  const [timeLimitOn, setTimeLimitOn] = useState(true);
   const [duration, setDuration] = useState(30);
   const [questions, setQuestions] = useState<Draft[]>([newDraft("mcq")]);
 
@@ -201,6 +208,20 @@ export default function ManualBuilderPage() {
         continue;
       }
       if (!q.prompt.trim() && !q.imagePath) return `${label}: write a prompt or add an image.`;
+      // Teacher-graded questions skip correctness validation. The prompt +
+      // choices/pairs still need enough structure for students to answer.
+      if (q.manualGrade) {
+        if (q.type === "mcq" || q.type === "multi_select") {
+          const filled = q.choices.filter((c) => c.trim());
+          if (filled.length < 2) return `${label}: choices need at least 2 options for students to pick from.`;
+        } else if (q.type === "match") {
+          const lefts = q.choices.filter((c) => c.trim());
+          if (lefts.length < 2) return `${label}: matching needs at least 2 items on the left.`;
+        } else if (q.type === "cloze" || q.type === "word_bank") {
+          if (!q.prompt.includes("[BLANK]")) return `${label}: fill-in prompt needs at least one [BLANK].`;
+        }
+        continue;
+      }
       if (q.type === "highlight") {
         const arr = Array.isArray(q.correct) ? q.correct : [];
         if (arr.length === 0 || arr.some((w) => !w.trim())) return `${label}: list at least one word to click.`;
@@ -252,7 +273,7 @@ export default function ManualBuilderPage() {
         title: title.trim(),
         subject,
         grade,
-        duration_min: duration,
+        duration_min: timeLimitOn ? duration : 0,
         questions: questions.map((q) => {
           const type = q.type;
           const choices =
@@ -260,7 +281,14 @@ export default function ManualBuilderPage() {
               ? q.choices.filter((c) => c.trim())
               : undefined;
           let correct: string | number | string[] = "";
-          if (
+          if (q.manualGrade) {
+            // Sentinel: empty string / empty array means the teacher will grade
+            // this question manually. gradeLocally() treats an empty correct as
+            // "awaiting teacher" and skips the auto-grade.
+            correct = type === "multi_select" || type === "cloze" ||
+              type === "word_bank" || type === "highlight" || type === "match"
+              ? [] : "";
+          } else if (
             type === "multi_select" || type === "cloze" ||
             type === "word_bank" || type === "highlight" || type === "match"
           ) {
@@ -336,13 +364,13 @@ export default function ManualBuilderPage() {
           />
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
             <Label className="mb-1.5 block">Subject</Label>
             <select
               value={subject}
               onChange={(e) => setSubject(e.target.value)}
-              className="h-10 w-full rounded-xl border border-input bg-transparent px-3 text-sm"
+              className="h-11 w-full rounded-xl border border-input bg-transparent px-3 text-base sm:text-sm"
             >
               {SUBJECTS.map((s) => <option key={s} value={s}>{s}</option>)}
             </select>
@@ -352,22 +380,43 @@ export default function ManualBuilderPage() {
             <select
               value={grade}
               onChange={(e) => setGrade(e.target.value)}
-              className="h-10 w-full rounded-xl border border-input bg-transparent px-3 text-sm"
+              className="h-11 w-full rounded-xl border border-input bg-transparent px-3 text-base sm:text-sm"
             >
               {GRADES.map((g) => <option key={g} value={g}>Grade {g}</option>)}
             </select>
           </div>
-          <div>
-            <Label className="mb-1.5 block">Duration (min)</Label>
-            <Input
-              type="number"
-              min={5}
-              max={240}
-              value={duration}
-              onChange={(e) => setDuration(Number(e.target.value) || 30)}
-              className="h-10 rounded-xl"
+        </div>
+
+        <div>
+          <div className="mb-1.5 flex items-center justify-between gap-3 flex-wrap">
+            <Label>Time limit</Label>
+            <YesNoToggle
+              value={timeLimitOn}
+              onChange={setTimeLimitOn}
+              yesLabel="Timed"
+              noLabel="Untimed"
             />
           </div>
+          {timeLimitOn ? (
+            <div className="flex items-center gap-3">
+              <NumberStepper
+                value={duration}
+                onChange={setDuration}
+                min={1}
+                max={240}
+                ariaLabel="Duration in minutes"
+                suffix="min"
+                className="max-w-[220px]"
+              />
+              <p className="text-xs text-muted-foreground flex-1">
+                Students see a countdown timer.
+              </p>
+            </div>
+          ) : (
+            <p className="text-xs text-muted-foreground">
+              No time limit — students see a stopwatch and can finish whenever.
+            </p>
+          )}
         </div>
       </Card>
 
@@ -423,14 +472,14 @@ export default function ManualBuilderPage() {
         ))}
       </div>
 
-      <div className="mt-6 flex items-center justify-between gap-3 flex-wrap">
+      <div className="mt-6 mb-24 flex items-center justify-start gap-3 flex-wrap md:mb-6 md:justify-between">
         <TypePicker onPick={(t) => addQ(t)} />
         <Button
           onClick={onSave}
           disabled={pending}
           variant="candy"
           size="lg"
-          className="rounded-full h-12 px-6"
+          className="hidden md:inline-flex rounded-full h-12 px-6"
         >
           {pending ? (
             <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Saving…</>
@@ -440,9 +489,57 @@ export default function ManualBuilderPage() {
         </Button>
       </div>
 
-      <p className="mt-4 text-xs text-muted-foreground">
+      <p className="hidden md:block mt-4 text-xs text-muted-foreground">
         Tip: After saving you can <b>add images</b>, <b>drag to reorder</b>, and <b>preview as a student</b> on the test page.
       </p>
+
+      {/* Sticky save bar on mobile */}
+      <div className="fixed bottom-0 left-0 right-0 z-30 border-t bg-background/95 backdrop-blur px-4 py-3 md:hidden">
+        <Button
+          onClick={onSave}
+          disabled={pending}
+          variant="candy"
+          size="lg"
+          className="w-full rounded-full h-12"
+        >
+          {pending ? (
+            <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Saving…</>
+          ) : (
+            <><Save className="mr-2 h-4 w-4" /> Save test ({questions.length} q)</>
+          )}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function YesNoToggle({
+  value, onChange, yesLabel = "Yes", noLabel = "No",
+}: { value: boolean; onChange: (v: boolean) => void; yesLabel?: string; noLabel?: string }) {
+  return (
+    <div className="inline-flex rounded-full border border-input p-0.5 bg-transparent">
+      <button
+        type="button"
+        onClick={() => onChange(true)}
+        className={`px-3 h-8 rounded-full text-xs font-semibold transition-colors ${
+          value
+            ? "bg-[var(--brand)] text-white"
+            : "text-muted-foreground hover:text-foreground"
+        }`}
+      >
+        {yesLabel}
+      </button>
+      <button
+        type="button"
+        onClick={() => onChange(false)}
+        className={`px-3 h-8 rounded-full text-xs font-semibold transition-colors ${
+          !value
+            ? "bg-[var(--brand)] text-white"
+            : "text-muted-foreground hover:text-foreground"
+        }`}
+      >
+        {noLabel}
+      </button>
     </div>
   );
 }
@@ -459,18 +556,18 @@ function DraftCard({
   onUploadImage: (file: File) => void;
   onRemoveImage: () => void;
 }) {
-  const fileRef = useRef<HTMLInputElement | null>(null);
+  const supportsManualGrade = q.type !== "passage" && q.type !== "true_false";
   return (
-    <Card className="lwm-card p-5">
-      <div className="mb-3 flex items-start justify-between gap-3 flex-wrap">
-        <div className="flex items-center gap-2 text-sm">
-          <span className="flex h-7 w-7 items-center justify-center rounded-full bg-muted font-mono text-xs font-bold">
+    <Card className="lwm-card p-4 sm:p-5">
+      <div className="mb-3 flex items-start justify-between gap-2">
+        <div className="flex flex-wrap items-center gap-2 text-sm min-w-0 flex-1">
+          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted font-mono text-xs font-bold">
             {index + 1}
           </span>
           <select
             value={q.type}
             onChange={(e) => onChangeType(e.target.value as QuestionType)}
-            className="h-8 rounded-full border border-input bg-transparent px-3 text-xs font-semibold"
+            className="h-9 rounded-full border border-input bg-transparent px-3 text-sm font-semibold min-w-0 flex-1 sm:flex-none sm:text-xs"
             aria-label="Question type"
           >
             {TYPES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
@@ -478,27 +575,41 @@ function DraftCard({
           <select
             value={q.difficulty}
             onChange={(e) => onPatch({ difficulty: e.target.value as Difficulty })}
-            className="h-8 rounded-full border border-input bg-transparent px-3 text-xs"
+            className="h-9 rounded-full border border-input bg-transparent px-3 text-sm sm:h-8 sm:text-xs"
             aria-label="Difficulty"
           >
             {DIFFICULTIES.map((d) => <option key={d} value={d}>{d}</option>)}
           </select>
-          <div className="inline-flex items-center gap-1.5 h-8 rounded-full border border-input bg-transparent px-3 text-xs">
-            <span className="text-muted-foreground">pts</span>
-            <input
-              type="number"
-              min={1}
-              max={100}
-              value={q.points}
-              onChange={(e) => onPatch({ points: Math.max(1, parseInt(e.target.value || "1", 10)) })}
-              className="w-10 bg-transparent text-right outline-none"
-              aria-label="Points"
-            />
-          </div>
         </div>
-        <Button variant="ghost" size="icon-sm" onClick={onRemove} aria-label="Remove question">
+        <Button variant="ghost" size="icon-sm" onClick={onRemove} aria-label="Remove question" className="shrink-0">
           <Trash2 className="h-4 w-4" />
         </Button>
+      </div>
+
+      <div className="mb-4 flex items-center gap-3 flex-wrap">
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-muted-foreground uppercase tracking-wide font-semibold">Points</span>
+          <NumberStepper
+            value={q.points}
+            onChange={(n) => onPatch({ points: Math.max(1, n) })}
+            min={1}
+            max={100}
+            ariaLabel="Points"
+            className="w-[140px] h-9"
+          />
+        </div>
+        {supportsManualGrade && (
+          <label className="inline-flex items-center gap-2 rounded-full border border-input px-3 h-9 cursor-pointer hover:border-foreground/40 select-none">
+            <input
+              type="checkbox"
+              checked={!!q.manualGrade}
+              onChange={(e) => onPatch({ manualGrade: e.target.checked })}
+              className="h-4 w-4 accent-[var(--brand)]"
+            />
+            <GraduationCap className="h-3.5 w-3.5 text-muted-foreground" />
+            <span className="text-xs font-semibold">I&apos;ll grade this myself</span>
+          </label>
+        )}
       </div>
 
       <Label className="mb-1.5 block text-xs uppercase tracking-wide font-semibold text-muted-foreground">
@@ -524,69 +635,53 @@ function DraftCard({
       />
 
       <div className="mb-4">
-        <input
-          ref={fileRef}
-          type="file"
-          accept="image/*"
-          capture="environment"
-          className="hidden"
-          onChange={(e) => {
-            const f = e.target.files?.[0];
-            if (f) onUploadImage(f);
-            e.target.value = "";
-          }}
-        />
         {q.imagePath && q.imageUrl ? (
           <div className="flex items-start gap-3 rounded-xl border-2 border-border p-2">
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={q.imageUrl} alt="" className="h-28 w-28 shrink-0 rounded-lg object-cover" />
-            <div className="flex flex-col gap-1">
+            <img src={q.imageUrl} alt="" className="h-24 w-24 sm:h-28 sm:w-28 shrink-0 rounded-lg object-cover" />
+            <div className="flex flex-col gap-2 min-w-0">
               <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Question image</p>
-              <div className="flex gap-1">
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  onClick={() => fileRef.current?.click()}
-                  className="rounded-full"
-                >
-                  <Upload className="mr-1 h-3 w-3" /> Replace
-                </Button>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="ghost"
-                  onClick={onRemoveImage}
-                  className="rounded-full text-muted-foreground"
-                >
-                  <ImageOff className="mr-1 h-3 w-3" /> Remove
-                </Button>
-              </div>
-              <p className="text-[11px] text-muted-foreground">Students see this above the prompt.</p>
+              <ImagePicker onFile={onUploadImage} uploading={q.imageUploading} compact />
+              <button
+                type="button"
+                onClick={onRemoveImage}
+                className="inline-flex w-fit items-center gap-1 rounded-full px-2 py-1 text-xs text-muted-foreground hover:text-foreground"
+              >
+                <ImageOff className="h-3 w-3" /> Remove image
+              </button>
             </div>
           </div>
         ) : (
-          <div className="flex gap-2">
-            <button
-              type="button"
-              onClick={() => fileRef.current?.click()}
-              disabled={q.imageUploading}
-              className="inline-flex items-center gap-1.5 rounded-full border-2 border-dashed border-[var(--brand)]/40 bg-[color-mix(in_oklab,var(--brand)_5%,transparent)] px-4 py-2 text-sm font-semibold text-[var(--brand)] hover:border-[var(--brand)] disabled:opacity-60"
-            >
-              {q.imageUploading ? (
-                <><Loader2 className="h-4 w-4 animate-spin" /> Uploading…</>
-              ) : (
-                <><ImagePlus className="h-4 w-4" /> Add image</>
-              )}
-            </button>
-            <span className="self-center text-xs text-muted-foreground inline-flex items-center gap-1">
-              <Camera className="h-3 w-3" /> JPG, PNG, WebP up to 8 MB
-            </span>
+          <div className="space-y-1.5">
+            <ImagePicker onFile={onUploadImage} uploading={q.imageUploading} />
+            <p className="text-[11px] text-muted-foreground">JPG, PNG, WebP up to 8 MB.</p>
           </div>
         )}
       </div>
 
-      <AnswerEditor q={q} onPatch={onPatch} onPatchChoice={onPatchChoice} />
+      {q.manualGrade ? (
+        <div className="rounded-xl border-2 border-dashed border-[var(--brand)]/40 bg-[color-mix(in_oklab,var(--brand)_5%,transparent)] p-3">
+          <div className="flex items-start gap-2 mb-2">
+            <GraduationCap className="h-4 w-4 text-[var(--brand)] mt-0.5" />
+            <p className="text-sm font-semibold">You&apos;ll grade this manually</p>
+          </div>
+          <p className="text-xs text-muted-foreground mb-3">
+            Students see the question and answer it, but no auto-grading. You review their answer in the inbox.
+          </p>
+          <Label className="mb-1.5 block text-xs uppercase tracking-wide font-semibold text-muted-foreground">
+            Grading notes (optional)
+          </Label>
+          <Textarea
+            rows={2}
+            value={q.rubric}
+            onChange={(e) => onPatch({ rubric: e.target.value })}
+            placeholder="Notes to yourself when grading — e.g. key ideas, partial credit rules."
+            className="rounded-xl"
+          />
+        </div>
+      ) : (
+        <AnswerEditor q={q} onPatch={onPatch} onPatchChoice={onPatchChoice} />
+      )}
     </Card>
   );
 }
@@ -954,39 +1049,56 @@ function AnswerEditor({
 
 function TypePicker({ onPick }: { onPick: (t: QuestionType) => void }) {
   const [open, setOpen] = useState(false);
+  const openedAtRef = useRef(0);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+
+  // Outside-close via document pointerdown. Guarded by a short "just opened"
+  // window so the same tap that opened the popover doesn't immediately close
+  // it (iOS Safari phantom-click issue).
+  useEffect(() => {
+    if (!open) return;
+    function onDocDown(e: PointerEvent) {
+      if (Date.now() - openedAtRef.current < 350) return;
+      const el = containerRef.current;
+      if (el && e.target instanceof Node && el.contains(e.target)) return;
+      setOpen(false);
+    }
+    document.addEventListener("pointerdown", onDocDown);
+    return () => document.removeEventListener("pointerdown", onDocDown);
+  }, [open]);
+
   return (
-    <div className="relative">
+    <div className="relative" ref={containerRef}>
       <Button
         variant="outline"
-        className="rounded-full"
-        onClick={() => setOpen((o) => !o)}
+        className="rounded-full h-11 px-5 text-base sm:h-9 sm:px-4 sm:text-sm"
+        onClick={() => {
+          openedAtRef.current = Date.now();
+          setOpen((o) => !o);
+        }}
       >
         <Plus className="mr-1 h-4 w-4" /> Add question
       </Button>
       {open && (
-        <>
-          <button
-            aria-label="Close"
-            onClick={() => setOpen(false)}
-            className="fixed inset-0 z-10 cursor-default bg-transparent"
-          />
-          <div className="absolute left-0 top-11 z-20 grid w-[min(320px,calc(100vw-2rem))] gap-1 rounded-2xl border bg-popover p-2 shadow-lg">
-            {TYPES.map((t) => (
-              <button
-                key={t.value}
-                type="button"
-                onClick={() => { onPick(t.value); setOpen(false); }}
-                className="flex flex-col rounded-xl border-2 border-transparent px-3 py-2 text-left transition-all hover:border-[var(--brand)] hover:bg-[color-mix(in_oklab,var(--brand)_8%,transparent)]"
-              >
-                <span className="text-sm font-semibold">{t.label}</span>
-                <span className="text-xs text-muted-foreground">{t.hint}</span>
-              </button>
-            ))}
-            <div className="mt-1 border-t pt-2 text-xs text-muted-foreground px-3 flex items-center gap-1.5">
-              <ImagePlus className="h-3 w-3" /> Add images after saving on the test page.
-            </div>
-          </div>
-        </>
+        <div
+          className="absolute left-0 top-12 z-20 grid w-[min(320px,calc(100vw-2rem))] gap-1 rounded-2xl border bg-popover p-2 shadow-lg"
+          role="menu"
+        >
+          {TYPES.map((t) => (
+            <button
+              key={t.value}
+              type="button"
+              onClick={() => {
+                onPick(t.value);
+                setOpen(false);
+              }}
+              className="flex flex-col rounded-xl border-2 border-transparent px-3 py-2 text-left transition-all hover:border-[var(--brand)] hover:bg-[color-mix(in_oklab,var(--brand)_8%,transparent)]"
+            >
+              <span className="text-sm font-semibold">{t.label}</span>
+              <span className="text-xs text-muted-foreground">{t.hint}</span>
+            </button>
+          ))}
+        </div>
       )}
     </div>
   );
