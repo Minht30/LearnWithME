@@ -55,7 +55,8 @@ export const GeneratedTest = z.object({
   title: z.string().min(1),
   subject: z.string().min(1),
   grade: z.string().min(1),
-  duration_min: z.number().int().min(1).max(240),
+  // 0 = untimed (students see a stopwatch instead of a countdown)
+  duration_min: z.number().int().min(0).max(240),
   questions: z.array(Question).min(1),
 });
 export type GeneratedTest = z.infer<typeof GeneratedTest>;
@@ -65,7 +66,8 @@ export const TestRequest = z.object({
   subject: z.string().min(1),
   grade: z.string().min(1),
   count: z.number().int().min(1).max(100).default(20),
-  duration_min: z.number().int().min(5).max(240).default(30),
+  // 0 = untimed
+  duration_min: z.number().int().min(0).max(240).default(30),
   types: z.array(QuestionType).min(1).default(["mcq", "short"]),
   curriculum_ref: z.string().optional(),
 });

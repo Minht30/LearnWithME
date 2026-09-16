@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition, useRef } from "react";
+import { useState, useTransition, useRef, useEffect } from "react";
 import { AnimatePresence, Reorder } from "framer-motion";
 import { Card } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
@@ -11,7 +11,7 @@ import {
   Trash2, Check, X as XIcon, Pencil, GripVertical, ImagePlus, Loader2,
   Plus, ChevronDown, Calculator, ListChecks, ToggleLeft, TextCursorInput,
   MessageSquare, Type as TypeIcon, Highlighter, ArrowLeftRight, Package,
-  BookOpen, Minus, Target, Layers, MoveHorizontal, Mic, Bookmark,
+  BookOpen, GraduationCap, Minus, Target, Layers, MoveHorizontal, Mic, Bookmark,
 } from "lucide-react";
 import {
   deleteQuestion, updateQuestion, reorderQuestions, addQuestion,
@@ -25,6 +25,8 @@ import {
 } from "@/app/actions/question-bank";
 import type { DbBankItem } from "@/lib/db/types";
 import { RichText } from "@/components/ui/rich-text";
+import { NumberStepper } from "@/components/ui/number-stepper";
+import { ImagePicker } from "@/components/ui/image-picker";
 import type { DbQuestion } from "@/lib/db/types";
 import type { QuestionType } from "@/lib/schemas/question";
 
@@ -61,6 +63,14 @@ export function QuestionList({
   const [items, setItems] = useState(questions);
   const [pending, startTransition] = useTransition();
   const [openAdd, setOpenAdd] = useState(false);
+  // Defer drag-reorder mount so the page is interactive first. Framer Motion
+  // Reorder.Group runs expensive layout calc on every child on mount, which
+  // was the main source of the "frozen when opening a test" freeze on mobile.
+  const [reorderReady, setReorderReady] = useState(false);
+  useEffect(() => {
+    const t = setTimeout(() => setReorderReady(true), 0);
+    return () => clearTimeout(t);
+  }, []);
 
   function onReorder(next: QuestionWithMedia[]) {
     setItems(next);
@@ -81,33 +91,51 @@ export function QuestionList({
     });
   }
 
+  const rows = items.map((q, i) => (
+    <QuestionRow
+      key={q.id}
+      q={q}
+      index={i}
+      testId={testId}
+      onDeleted={() => setItems((prev) => prev.filter((p) => p.id !== q.id))}
+      onImageChange={(url, path) => setItems((prev) => prev.map((p) => p.id === q.id ? { ...p, imageUrl: url, image_path: path } : p))}
+    />
+  ));
+
   return (
     <div>
-      <Reorder.Group
-        axis="y"
-        values={items}
-        onReorder={onReorder}
-        className="space-y-3"
-      >
-        <AnimatePresence>
-          {items.map((q, i) => (
-            <Reorder.Item
-              key={q.id}
-              value={q}
-              className="cursor-default"
-              layout
-            >
-              <QuestionRow
-                q={q}
-                index={i}
-                testId={testId}
-                onDeleted={() => setItems((prev) => prev.filter((p) => p.id !== q.id))}
-                onImageChange={(url, path) => setItems((prev) => prev.map((p) => p.id === q.id ? { ...p, imageUrl: url, image_path: path } : p))}
-              />
-            </Reorder.Item>
-          ))}
-        </AnimatePresence>
-      </Reorder.Group>
+      {reorderReady ? (
+        <Reorder.Group
+          axis="y"
+          values={items}
+          onReorder={onReorder}
+          className="space-y-3"
+        >
+          <AnimatePresence>
+            {items.map((q, i) => (
+              <Reorder.Item
+                key={q.id}
+                value={q}
+                className="cursor-default"
+                style={{ contentVisibility: "auto" as never }}
+                layout
+              >
+                <QuestionRow
+                  q={q}
+                  index={i}
+                  testId={testId}
+                  onDeleted={() => setItems((prev) => prev.filter((p) => p.id !== q.id))}
+                  onImageChange={(url, path) => setItems((prev) => prev.map((p) => p.id === q.id ? { ...p, imageUrl: url, image_path: path } : p))}
+                />
+              </Reorder.Item>
+            ))}
+          </AnimatePresence>
+        </Reorder.Group>
+      ) : (
+        <div className="space-y-3">
+          {rows}
+        </div>
+      )}
 
       <div className="mt-6">
         {openAdd ? (
@@ -274,21 +302,33 @@ function QuestionRow({
   const [uploading, setUploading] = useState(false);
   const [prompt, setPrompt] = useState(q.prompt);
   const [choices, setChoices] = useState<string[]>(q.choices ?? []);
-  const [correct, setCorrect] = useState<string | string[]>(
-    Array.isArray(q.correct) ? q.correct : String(q.correct)
-  );
+  const initialCorrect: string | string[] = Array.isArray(q.correct)
+    ? q.correct
+    : String(q.correct);
+  const initialManual =
+    q.type !== "passage" && q.type !== "long" &&
+    (Array.isArray(initialCorrect)
+      ? initialCorrect.every((c) => !c.trim())
+      : !initialCorrect.trim());
+  const [correct, setCorrect] = useState<string | string[]>(initialCorrect);
+  const [manualGrade, setManualGrade] = useState(initialManual);
   const [points, setPoints] = useState(q.points ?? 1);
   const [rubric, setRubric] = useState(q.rubric ?? "");
   const fileRef = useRef<HTMLInputElement | null>(null);
   const audioRef = useRef<HTMLInputElement | null>(null);
   const [uploadingAudio, setUploadingAudio] = useState(false);
+  const supportsManualGrade = q.type !== "passage" && q.type !== "true_false";
 
   function onSave() {
     startTransition(async () => {
+      // Manual grade: send an empty sentinel for correct.
+      const outCorrect: string | string[] = manualGrade
+        ? Array.isArray(correct) ? [] : ""
+        : correct;
       const res = await updateQuestion(q.id, testId, {
         prompt,
         choices: choices.length ? choices : null,
-        correct,
+        correct: outCorrect,
         points,
         rubric: rubric || null,
       });
@@ -306,9 +346,7 @@ function QuestionRow({
     });
   }
 
-  async function onFile(e: React.ChangeEvent<HTMLInputElement>) {
-    const f = e.target.files?.[0];
-    if (!f) return;
+  async function uploadFile(f: File) {
     setUploading(true);
     const fd = new FormData();
     fd.append("file", f);
@@ -316,7 +354,6 @@ function QuestionRow({
     fd.append("questionId", q.id);
     const res = await uploadQuestionImage(fd);
     setUploading(false);
-    e.target.value = "";
     if (res.ok) { onImageChange(res.url, res.path); toast.success("Image added."); }
     else toast.error(res.error);
   }
@@ -396,33 +433,56 @@ function QuestionRow({
                 <FormatHelp type={q.type} />
               </div>
 
-              <AnswerEditor
-                type={q.type}
-                choices={choices}
-                setChoices={setChoices}
-                correct={correct}
-                setCorrect={setCorrect}
-              />
+              {supportsManualGrade && (
+                <label className="inline-flex items-center gap-2 rounded-full border border-input px-3 py-2 cursor-pointer hover:border-foreground/40 select-none">
+                  <input
+                    type="checkbox"
+                    checked={manualGrade}
+                    onChange={(e) => setManualGrade(e.target.checked)}
+                    className="h-4 w-4 accent-[var(--brand)]"
+                  />
+                  <GraduationCap className="h-3.5 w-3.5 text-muted-foreground" />
+                  <span className="text-xs font-semibold">I&apos;ll grade this myself</span>
+                </label>
+              )}
+
+              {manualGrade ? (
+                <div className="rounded-xl border-2 border-dashed border-[var(--brand)]/40 bg-[color-mix(in_oklab,var(--brand)_5%,transparent)] p-3">
+                  <p className="text-xs text-muted-foreground">
+                    No auto-grading. Students see the question and their answer waits in your review inbox.
+                  </p>
+                </div>
+              ) : (
+                <AnswerEditor
+                  type={q.type}
+                  choices={choices}
+                  setChoices={setChoices}
+                  correct={correct}
+                  setCorrect={setCorrect}
+                />
+              )}
 
               <div className="grid gap-3 sm:grid-cols-2">
                 <div>
                   <label className="mb-1 block text-xs font-semibold text-muted-foreground">Points</label>
-                  <Input
-                    type="number"
+                  <NumberStepper
+                    value={points}
+                    onChange={(n) => setPoints(Math.max(1, n))}
                     min={1}
                     max={100}
-                    value={points}
-                    onChange={(e) => setPoints(Math.max(1, parseInt(e.target.value || "1", 10)))}
-                    className="rounded-xl h-9 max-w-[100px]"
+                    ariaLabel="Points"
+                    className="max-w-[140px] h-9"
                   />
                 </div>
                 <div>
-                  <label className="mb-1 block text-xs font-semibold text-muted-foreground">Rubric / hint (optional)</label>
+                  <label className="mb-1 block text-xs font-semibold text-muted-foreground">
+                    {manualGrade ? "Grading notes (for you)" : "Rubric / hint (optional)"}
+                  </label>
                   <Input
                     value={rubric}
                     onChange={(e) => setRubric(e.target.value)}
                     className="rounded-xl h-9"
-                    placeholder="e.g. Give partial credit for correct method"
+                    placeholder={manualGrade ? "e.g. Full marks for named 3 causes" : "e.g. Give partial credit for correct method"}
                   />
                 </div>
               </div>
@@ -430,10 +490,9 @@ function QuestionRow({
               <ImageEditor
                 url={q.imageUrl ?? null}
                 uploading={uploading}
-                onPick={() => fileRef.current?.click()}
+                onFile={uploadFile}
                 onRemove={onRemoveImage}
               />
-              <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={onFile} />
             </div>
           ) : (
             <>
@@ -493,7 +552,17 @@ function QuestionRow({
               </Button>
             </>
           )}
-          <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={onFile} />
+          <input
+            ref={fileRef}
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              if (f) uploadFile(f);
+              e.target.value = "";
+            }}
+          />
           <input ref={audioRef} type="file" accept="audio/*" className="hidden" onChange={onAudioFile} />
         </div>
       </div>
@@ -1085,6 +1154,20 @@ function AnswerEditor({
 }
 
 function AnswerPreview({ q }: { q: QuestionWithMedia }) {
+  // Detect "teacher will grade this" (empty correct sentinel)
+  const isManual =
+    q.type !== "passage" && q.type !== "true_false" &&
+    (q.correct == null ||
+      (Array.isArray(q.correct) ? q.correct.every((c) => !String(c).trim()) : String(q.correct).trim() === ""));
+  if (isManual) {
+    return (
+      <p className="rounded-lg border border-[color-mix(in_oklab,var(--brand)_40%,transparent)] bg-[color-mix(in_oklab,var(--brand)_8%,transparent)] px-3 py-1.5 text-sm inline-flex items-center gap-1.5">
+        <GraduationCap className="h-3.5 w-3.5 text-[var(--brand)]" />
+        <span className="font-semibold">Teacher-graded</span>
+        <span className="text-xs text-muted-foreground">(no auto answer key)</span>
+      </p>
+    );
+  }
   if (q.type === "mcq" && q.choices) {
     return (
       <ul className="space-y-1 text-sm">
@@ -1258,8 +1341,8 @@ function AnswerPreview({ q }: { q: QuestionWithMedia }) {
 }
 
 function ImageEditor({
-  url, uploading, onPick, onRemove,
-}: { url: string | null; uploading: boolean; onPick: () => void; onRemove: () => void }) {
+  url, uploading, onFile, onRemove,
+}: { url: string | null; uploading: boolean; onFile: (f: File) => void; onRemove: () => void }) {
   return (
     <div>
       <label className="mb-1 block text-xs font-semibold text-muted-foreground">Image (optional)</label>
@@ -1267,20 +1350,15 @@ function ImageEditor({
         <div className="flex items-start gap-3 rounded-xl border-2 border-border p-2">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src={url} alt="" className="h-24 w-24 shrink-0 rounded-lg object-cover" />
-          <div className="flex flex-col gap-1">
-            <Button size="sm" variant="outline" onClick={onPick} className="rounded-full">Replace</Button>
-            <Button size="sm" variant="ghost" onClick={onRemove} className="rounded-full text-muted-foreground">Remove</Button>
+          <div className="flex flex-col gap-2 min-w-0">
+            <ImagePicker onFile={onFile} uploading={uploading} compact />
+            <Button size="sm" variant="ghost" onClick={onRemove} className="rounded-full text-muted-foreground w-fit">
+              Remove
+            </Button>
           </div>
         </div>
       ) : (
-        <button
-          onClick={onPick}
-          disabled={uploading}
-          className="inline-flex items-center gap-1.5 rounded-full border-2 border-dashed border-[var(--brand)]/40 bg-[color-mix(in_oklab,var(--brand)_5%,transparent)] px-4 py-2 text-sm font-semibold text-[var(--brand)] hover:border-[var(--brand)]"
-        >
-          {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <ImagePlus className="h-4 w-4" />}
-          Add image
-        </button>
+        <ImagePicker onFile={onFile} uploading={uploading} />
       )}
     </div>
   );

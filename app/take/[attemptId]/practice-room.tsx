@@ -71,12 +71,31 @@ function blankEq(a: string, b: string) {
   return norm(a) === norm(b);
 }
 
+function isManuallyGraded(q: DbQuestion): boolean {
+  // Sentinel from the builder: an empty correct-answer field means the
+  // teacher will grade this manually. Applies to any type that would
+  // otherwise auto-grade.
+  if (q.type === "passage" || q.type === "long") return q.type === "long";
+  const c = q.correct;
+  if (c == null) return true;
+  if (Array.isArray(c)) return c.every((x) => !String(x).trim());
+  return String(c).trim() === "";
+}
+
 function gradeLocally(q: DbQuestion, response: string): LocalGrade {
   const trimmed = (response ?? "").trim();
   const correctAnswer = normalizeCorrect(q.correct);
 
   if (q.type === "passage") {
     return { isCorrect: true, correctAnswer: "", feedback: "" };
+  }
+  if (isManuallyGraded(q)) {
+    return {
+      isCorrect: false,
+      correctAnswer: "",
+      feedback: "Saved. Your teacher will review this one.",
+      awaitingTeacher: true,
+    };
   }
   if (q.type === "mcq") {
     const ok = trimmed.toLowerCase() === correctAnswer.toLowerCase();
@@ -238,11 +257,14 @@ export function PracticeRoom({
   }, [phase]);
 
   const startedMs = new Date(attempt.started_at).getTime();
-  const totalMs = test.duration_min * 60_000;
+  const untimed = !test.duration_min || test.duration_min <= 0;
+  const totalMs = untimed ? 0 : test.duration_min * 60_000;
   const elapsed = phase === "answering" ? Math.max(0, now - startedMs) : 0;
-  const remaining = Math.max(0, totalMs - elapsed);
+  const remaining = untimed ? 0 : Math.max(0, totalMs - elapsed);
   const remMin = Math.floor(remaining / 60_000);
   const remSec = Math.floor((remaining % 60_000) / 1000);
+  const elMin = Math.floor(elapsed / 60_000);
+  const elSec = Math.floor((elapsed % 60_000) / 1000);
 
   const rangStartRef = useRef(false);
   const rangOneMinRef = useRef(false);
@@ -251,6 +273,7 @@ export function PracticeRoom({
   useEffect(() => {
     if (phase !== "answering") return;
     if (!rangStartRef.current) { rangStartRef.current = true; playChime(sound); }
+    if (untimed) return;
     if (!rangOneMinRef.current && remaining > 0 && remaining <= 61_000) {
       rangOneMinRef.current = true;
       playChime(sound);
@@ -269,7 +292,7 @@ export function PracticeRoom({
         playTick(sound);
       }
     }
-  }, [phase, remaining, totalMs, sound]);
+  }, [phase, remaining, totalMs, sound, untimed]);
 
   // --- Debounced autosave ------------------------------------------------------
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -423,7 +446,11 @@ export function PracticeRoom({
 
             <div className="mt-6 grid grid-cols-2 gap-3">
               <StatChip icon={<ListChecks className="h-4 w-4" />} label="Questions" value={String(total)} />
-              <StatChip icon={<Clock className="h-4 w-4" />} label="Time limit" value={`${test.duration_min} min`} />
+              <StatChip
+                icon={<Clock className="h-4 w-4" />}
+                label={untimed ? "Time" : "Time limit"}
+                value={untimed ? "No limit" : `${test.duration_min} min`}
+              />
             </div>
 
             <div className="mt-6 space-y-2.5">
@@ -480,8 +507,8 @@ export function PracticeRoom({
   // -------- ANSWERING ---------------------------------------------------------
   const grade = q ? checked[q.id] : undefined;
   const percentDone = (answeredCount / total) * 100;
-  const timerHot = remaining <= 60_000;
-  const timerCritical = remaining <= 10_000;
+  const timerHot = !untimed && remaining <= 60_000;
+  const timerCritical = !untimed && remaining <= 10_000;
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -511,16 +538,24 @@ export function PracticeRoom({
             <div
               role="timer"
               aria-live={timerCritical ? "assertive" : "polite"}
-              aria-label={`Time remaining: ${remMin} minutes ${remSec} seconds`}
+              aria-label={
+                untimed
+                  ? `Elapsed: ${elMin} minutes ${elSec} seconds`
+                  : `Time remaining: ${remMin} minutes ${remSec} seconds`
+              }
               className={`rounded-full px-3 py-1 font-mono text-sm tabular-nums transition-colors ${
-                timerCritical
+                untimed
+                  ? "bg-muted text-foreground"
+                  : timerCritical
                   ? "bg-[var(--danger)] text-white lwm-heartbeat shadow-lg"
                   : timerHot
                   ? "bg-[color-mix(in_oklab,var(--warning)_25%,transparent)] text-[color-mix(in_oklab,var(--warning)_90%,black)] dark:text-[var(--warning)]"
                   : "bg-muted text-foreground"
               }`}
             >
-              {String(remMin).padStart(2, "0")}:{String(remSec).padStart(2, "0")}
+              {untimed
+                ? `${String(elMin).padStart(2, "0")}:${String(elSec).padStart(2, "0")}`
+                : `${String(remMin).padStart(2, "0")}:${String(remSec).padStart(2, "0")}`}
             </div>
             <AppHeaderControls />
           </div>
@@ -1014,10 +1049,16 @@ function WorkUpload({
             {!disabled && (
               <div className="mt-3 flex gap-2">
                 <label
-                  htmlFor={inputId}
+                  htmlFor={`${inputId}-replace-lib`}
                   className="inline-flex cursor-pointer items-center gap-1.5 rounded-full border bg-background px-3 py-1.5 text-xs font-semibold hover:border-foreground/40"
                 >
-                  <Upload className="h-3.5 w-3.5" /> Replace
+                  <Upload className="h-3.5 w-3.5" /> Choose file
+                </label>
+                <label
+                  htmlFor={`${inputId}-replace-cam`}
+                  className="inline-flex cursor-pointer items-center gap-1.5 rounded-full border bg-background px-3 py-1.5 text-xs font-semibold hover:border-foreground/40"
+                >
+                  <Camera className="h-3.5 w-3.5" /> Take photo
                 </label>
                 <button
                   type="button"
@@ -1031,9 +1072,22 @@ function WorkUpload({
           </div>
         </div>
         <input
-          id={inputId}
+          id={`${inputId}-replace-lib`}
           type="file"
           accept="image/*,application/pdf"
+          className="hidden"
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            if (f) onFile(f);
+            e.target.value = "";
+          }}
+          disabled={disabled}
+        />
+        <input
+          id={`${inputId}-replace-cam`}
+          type="file"
+          accept="image/*"
+          capture="environment"
           className="hidden"
           onChange={(e) => {
             const f = e.target.files?.[0];
@@ -1046,12 +1100,14 @@ function WorkUpload({
     );
   }
 
+  const camId = `${inputId}-cam`;
+  const libId = `${inputId}-lib`;
   return (
     <>
       <input
-        id={inputId}
+        id={camId}
         type="file"
-        accept="image/*,application/pdf"
+        accept="image/*"
         capture="environment"
         className="hidden"
         onChange={(e) => {
@@ -1061,33 +1117,46 @@ function WorkUpload({
         }}
         disabled={disabled}
       />
-      <label
-        htmlFor={inputId}
-        className={`flex flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed py-8 text-center transition-colors ${
-          disabled
-            ? "pointer-events-none opacity-50"
-            : "cursor-pointer border-[var(--brand)]/40 hover:border-[var(--brand)] hover:bg-[color-mix(in_oklab,var(--brand)_8%,transparent)]"
-        }`}
-      >
-        {uploading ? (
-          <>
-            <Loader2 className="h-6 w-6 animate-spin text-[var(--brand)]" />
-            <span className="text-sm text-muted-foreground">Uploading your work…</span>
-          </>
-        ) : (
-          <>
-            <div className="flex h-14 w-14 items-center justify-center rounded-full bg-[color-mix(in_oklab,var(--brand)_15%,transparent)] text-[color-mix(in_oklab,var(--brand)_90%,black)] dark:text-[var(--brand)] shadow-inner">
-              <Camera className="h-7 w-7" />
+      <input
+        id={libId}
+        type="file"
+        accept="image/*,application/pdf"
+        className="hidden"
+        onChange={(e) => {
+          const f = e.target.files?.[0];
+          if (f) onFile(f);
+          e.target.value = "";
+        }}
+        disabled={disabled}
+      />
+      {uploading ? (
+        <div className="flex items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-[var(--brand)]/40 py-8 text-center">
+          <Loader2 className="h-6 w-6 animate-spin text-[var(--brand)]" />
+          <span className="text-sm text-muted-foreground">Uploading your work…</span>
+        </div>
+      ) : (
+        <div className={`grid gap-2 sm:grid-cols-2 ${disabled ? "opacity-50 pointer-events-none" : ""}`}>
+          <label
+            htmlFor={camId}
+            className="flex cursor-pointer flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-[var(--brand)]/40 py-6 text-center hover:border-[var(--brand)] hover:bg-[color-mix(in_oklab,var(--brand)_8%,transparent)]"
+          >
+            <div className="flex h-12 w-12 items-center justify-center rounded-full bg-[color-mix(in_oklab,var(--brand)_15%,transparent)] text-[color-mix(in_oklab,var(--brand)_90%,black)] dark:text-[var(--brand)] shadow-inner">
+              <Camera className="h-6 w-6" />
             </div>
-            <div>
-              <p className="text-sm font-semibold">Take a photo of your paper</p>
-              <p className="mt-0.5 text-xs text-muted-foreground">
-                or pick an image / PDF (12 MB max)
-              </p>
+            <p className="text-sm font-semibold">Take a photo</p>
+          </label>
+          <label
+            htmlFor={libId}
+            className="flex cursor-pointer flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-[var(--brand)]/40 py-6 text-center hover:border-[var(--brand)] hover:bg-[color-mix(in_oklab,var(--brand)_8%,transparent)]"
+          >
+            <div className="flex h-12 w-12 items-center justify-center rounded-full bg-[color-mix(in_oklab,var(--brand)_15%,transparent)] text-[color-mix(in_oklab,var(--brand)_90%,black)] dark:text-[var(--brand)] shadow-inner">
+              <Upload className="h-6 w-6" />
             </div>
-          </>
-        )}
-      </label>
+            <p className="text-sm font-semibold">Choose from library</p>
+            <p className="text-[11px] text-muted-foreground">Image or PDF · 12 MB max</p>
+          </label>
+        </div>
+      )}
     </>
   );
 }

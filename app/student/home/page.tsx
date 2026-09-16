@@ -358,7 +358,7 @@ function AssignmentCard({
         <StatusPill status={status ?? "new"} />
       </div>
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
-        <span className="flex items-center gap-1"><Clock className="h-3 w-3" /> {durationMin} min</span>
+        <span className="flex items-center gap-1"><Clock className="h-3 w-3" /> {durationMin > 0 ? `${durationMin} min` : "Untimed"}</span>
         {dueAt && (
           <span className={`flex items-center gap-1 ${overdue ? "text-[var(--danger)] font-semibold" : ""}`}>
             <Calendar className="h-3 w-3" /> Due {formatDueDate(dueAt)}
