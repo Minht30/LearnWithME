@@ -22,6 +22,7 @@ type AttemptRow = {
   id: string; test_id: string; status: AttemptStatus;
   submitted_at: string | null; started_at: string;
   teacher_note: string | null; reviewed_at: string | null;
+  feedback_read_at: string | null;
 };
 
 async function loadHome() {
@@ -38,7 +39,7 @@ async function loadHome() {
       .order("due_at", { ascending: true, nullsFirst: false }),
     admin
       .from("attempts")
-      .select("id, test_id, status, submitted_at, started_at, teacher_note, reviewed_at")
+      .select("id, test_id, status, submitted_at, started_at, teacher_note, reviewed_at, feedback_read_at")
       .eq("student_id", student.id)
       .order("started_at", { ascending: false }),
   ]);
@@ -372,14 +373,26 @@ function AssignmentCard({
       {note && <p className="mt-2 text-sm italic text-muted-foreground">&ldquo;{note}&rdquo;</p>}
       {isRedo && attempt?.teacher_note && (
         <div className="mt-2 rounded-lg border border-[var(--warning)]/30 bg-[color-mix(in_oklab,var(--warning)_10%,transparent)] p-2 text-sm">
-          <b>Teacher says:</b> {attempt.teacher_note}
+          <div className="mb-1 flex items-center gap-2 text-xs text-muted-foreground">
+            <b className="text-foreground">Teacher says</b>
+            {attempt.reviewed_at && (
+              <span>· {formatDistanceToNow(attempt.reviewed_at)}</span>
+            )}
+            {attempt.reviewed_at && !attempt.feedback_read_at && (
+              <span className="rounded-full bg-[var(--brand)] px-1.5 py-0.5 text-[10px] font-bold text-white">NEW</span>
+            )}
+          </div>
+          {attempt.teacher_note}
         </div>
       )}
       <div className="mt-3">
         {isApproved && attempt ? (
-          <Link href={`/result/${attempt.id}`}>
+          <Link href={`/result/${attempt.id}`} className="relative block">
             <Button variant="outline" className="w-full rounded-full">
               <CheckCircle2 className="mr-1 h-4 w-4" /> See feedback
+              {attempt.reviewed_at && !attempt.feedback_read_at && (
+                <span className="ml-2 rounded-full bg-[var(--brand)] px-1.5 py-0.5 text-[10px] font-bold text-white">NEW</span>
+              )}
             </Button>
           </Link>
         ) : isSubmitted && attempt ? (
@@ -387,11 +400,11 @@ function AssignmentCard({
             <Button variant="outline" className="w-full rounded-full">Waiting for review</Button>
           </Link>
         ) : isRedo && attempt ? (
-          <Link href={`/take/${attempt.id}`}>
-            <Button variant="candy" className="w-full rounded-full h-10">
+          <form action={async () => { "use server"; await startAttemptForStudent(testId); }}>
+            <Button type="submit" variant="candy" className="w-full rounded-full h-10">
               <RotateCcw className="mr-1 h-4 w-4" /> Try again
             </Button>
-          </Link>
+          </form>
         ) : isInProgress && attempt ? (
           <Link href={`/take/${attempt.id}`}>
             <Button variant="candy" className="w-full rounded-full h-10">

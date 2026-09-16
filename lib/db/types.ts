@@ -77,6 +77,7 @@ export type DbAttempt = {
   reviewed_at: string | null;
   reviewed_by: string | null;
   results_email_sent_at: string | null;
+  feedback_read_at: string | null;
 };
 
 export type DbAnswer = {

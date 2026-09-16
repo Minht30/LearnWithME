@@ -51,6 +51,7 @@ export default async function TeacherTestPreview({
     reviewed_at: null,
     reviewed_by: null,
     results_email_sent_at: null,
+    feedback_read_at: null,
   };
 
   return (

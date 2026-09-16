@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { signExplanationUrl } from "@/app/actions/upload-explanation";
+import { getCurrentStudent } from "@/lib/auth/student-session";
 
 export const dynamic = "force-dynamic";
 import type { DbAttempt, DbAnswer, DbQuestion, DbTest, DbStudent } from "@/lib/db/types";
@@ -50,6 +51,21 @@ export default async function ResultPage({ params }: PageProps<"/result/[attempt
   const data = await loadResult(attemptId);
   if (!data) return notFound();
   const { questions, answers, student } = data;
+
+  // Mark teacher feedback as read the first time the student opens the page.
+  // Silent + best-effort — teachers viewing this same page don't flip the flag
+  // because they aren't the signed-in student.
+  if (data.attempt.reviewed_at && !data.attempt.feedback_read_at) {
+    const viewer = await getCurrentStudent();
+    if (viewer?.id === data.attempt.student_id) {
+      const admin = createAdminClient();
+      await admin
+        .from("attempts")
+        .update({ feedback_read_at: new Date().toISOString() })
+        .eq("id", attemptId);
+      data.attempt.feedback_read_at = new Date().toISOString();
+    }
+  }
 
   const answerMap = new Map(answers.map((a) => [a.question_id, a]));
   // Passages don't count towards the score.
