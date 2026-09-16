@@ -12,7 +12,7 @@ import { Download, ArrowLeft, Clock, Eye } from "lucide-react";
 import { QuestionList } from "./question-list";
 import { ShareCard } from "./share-card";
 import { AssignCard } from "./assign-card";
-import { signQuestionImage } from "@/app/actions/question-media";
+import { signQuestionImage, signQuestionAudio } from "@/app/actions/question-media";
 
 async function loadTest(id: string) {
   const teacherId = await requireTeacherId();
@@ -43,11 +43,11 @@ async function loadTest(id: string) {
   }));
 
   const questionsWithMedia = await Promise.all(
-    ((questions ?? []) as DbQuestion[]).map(async (q) => {
-      if (!q.image_path) return { ...q, imageUrl: null };
-      const url = await signQuestionImage(q.image_path);
-      return { ...q, imageUrl: url };
-    })
+    ((questions ?? []) as DbQuestion[]).map(async (q) => ({
+      ...q,
+      imageUrl: q.image_path ? await signQuestionImage(q.image_path) : null,
+      audioUrl: q.audio_path ? await signQuestionAudio(q.audio_path) : null,
+    }))
   );
 
   return {

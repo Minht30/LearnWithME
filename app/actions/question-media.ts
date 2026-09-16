@@ -6,7 +6,9 @@ import { revalidatePath } from "next/cache";
 
 const BUCKET = "question-media";
 const MAX_BYTES = 8 * 1024 * 1024;
+const AUDIO_MAX_BYTES = 12 * 1024 * 1024;
 const ALLOWED = new Set(["image/jpeg", "image/png", "image/webp", "image/gif", "image/svg+xml"]);
+const ALLOWED_AUDIO = new Set(["audio/mpeg", "audio/mp3", "audio/wav", "audio/wave", "audio/x-wav", "audio/ogg", "audio/webm", "audio/mp4", "audio/m4a"]);
 
 const EXT: Record<string, string> = {
   "image/jpeg": "jpg",
@@ -14,6 +16,15 @@ const EXT: Record<string, string> = {
   "image/webp": "webp",
   "image/gif": "gif",
   "image/svg+xml": "svg",
+  "audio/mpeg": "mp3",
+  "audio/mp3": "mp3",
+  "audio/wav": "wav",
+  "audio/wave": "wav",
+  "audio/x-wav": "wav",
+  "audio/ogg": "ogg",
+  "audio/webm": "webm",
+  "audio/mp4": "m4a",
+  "audio/m4a": "m4a",
 };
 
 export type UploadImageResult =
@@ -112,6 +123,64 @@ export async function removeQuestionImage(
 
 /** Server-side helper to sign a URL for viewing. Used at page-load time. */
 export async function signQuestionImage(path: string): Promise<string | null> {
+  const admin = createAdminClient();
+  const { data } = await admin.storage.from(BUCKET).createSignedUrl(path, 60 * 60 * 24 * 7);
+  return data?.signedUrl ?? null;
+}
+
+/** Upload an audio prompt for a question. */
+export async function uploadQuestionAudio(formData: FormData): Promise<UploadImageResult> {
+  const teacherId = await requireTeacherId();
+  const file = formData.get("file");
+  const testId = String(formData.get("testId") ?? "");
+  const questionId = String(formData.get("questionId") ?? "");
+  if (!(file instanceof File)) return { ok: false, error: "No file provided." };
+  if (!testId || !questionId) return { ok: false, error: "Missing test or question id." };
+  if (file.size > AUDIO_MAX_BYTES) return { ok: false, error: "Audio too large (12 MB max)." };
+  if (!ALLOWED_AUDIO.has(file.type)) return { ok: false, error: "MP3, WAV, OGG, or M4A only." };
+
+  const admin = createAdminClient();
+  const { data: t } = await admin
+    .from("tests").select("id").eq("id", testId).eq("teacher_id", teacherId).maybeSingle();
+  if (!t) return { ok: false, error: "You don't own that test." };
+
+  const ext = EXT[file.type] ?? "bin";
+  const path = `audio/${testId}/${questionId}-${Date.now()}.${ext}`;
+  const buffer = new Uint8Array(await file.arrayBuffer());
+
+  const { error: upErr } = await admin.storage
+    .from(BUCKET)
+    .upload(path, buffer, { contentType: file.type, upsert: true });
+  if (upErr) return { ok: false, error: upErr.message };
+
+  const { error: qErr } = await admin
+    .from("questions")
+    .update({ audio_path: path })
+    .eq("id", questionId);
+  if (qErr) return { ok: false, error: qErr.message };
+
+  const { data: signed } = await admin.storage
+    .from(BUCKET)
+    .createSignedUrl(path, 60 * 60 * 24 * 30);
+  if (!signed?.signedUrl) return { ok: false, error: "Could not mint preview URL." };
+  return { ok: true, url: signed.signedUrl, path };
+}
+
+export async function removeQuestionAudio(
+  testId: string,
+  questionId: string
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  await requireTeacherId();
+  const admin = createAdminClient();
+  const { data: q } = await admin.from("questions").select("audio_path").eq("id", questionId).maybeSingle();
+  if (!q?.audio_path) return { ok: true };
+  await admin.storage.from(BUCKET).remove([q.audio_path]);
+  const { error } = await admin.from("questions").update({ audio_path: null }).eq("id", questionId);
+  if (error) return { ok: false, error: error.message };
+  return { ok: true };
+}
+
+export async function signQuestionAudio(path: string): Promise<string | null> {
   const admin = createAdminClient();
   const { data } = await admin.storage.from(BUCKET).createSignedUrl(path, 60 * 60 * 24 * 7);
   return data?.signedUrl ?? null;

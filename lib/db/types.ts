@@ -27,6 +27,17 @@ export type DbQuestion = {
   position: number;
   points: number;
   image_path: string | null;
+  audio_path: string | null;
+  created_at: string;
+};
+
+export type DbBankItem = {
+  id: string;
+  teacher_id: string;
+  label: string;
+  subject: string | null;
+  grade: string | null;
+  snapshot: Record<string, unknown>;
   created_at: string;
 };
 

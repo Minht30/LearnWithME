@@ -240,6 +240,84 @@ async function gradeOne(
     return { is_correct: true, score: 0, feedback: "" };
   }
 
+  if (q.type === "number_line") {
+    const target = parseFloat(String(q.correct));
+    const val = parseFloat(trimmed);
+    if (!Number.isFinite(target) || !Number.isFinite(val)) {
+      return { is_correct: false, score: 0, feedback: `Target: ${q.correct}` };
+    }
+    const ok = Math.abs(val - target) < 1e-6;
+    return {
+      is_correct: ok,
+      score: ok ? 1 : 0,
+      feedback: ok ? "Right on the mark!" : `Target: ${q.correct}`,
+    };
+  }
+
+  if (q.type === "coord_plot") {
+    const [tx, ty] = String(q.correct).split(",").map((s) => parseFloat(s.trim()));
+    const [sx, sy] = trimmed.split(",").map((s) => parseFloat(s.trim()));
+    if (!Number.isFinite(tx) || !Number.isFinite(ty) || !Number.isFinite(sx) || !Number.isFinite(sy)) {
+      return { is_correct: false, score: 0, feedback: `Target: (${q.correct})` };
+    }
+    const ok = Math.abs(sx - tx) < 1e-6 && Math.abs(sy - ty) < 1e-6;
+    return {
+      is_correct: ok,
+      score: ok ? 1 : 0,
+      feedback: ok ? "Perfect point!" : `Target point: (${q.correct})`,
+    };
+  }
+
+  if (q.type === "hotspot") {
+    const [tx, ty, tr] = String(q.correct).split(",").map((s) => parseFloat(s.trim()));
+    const [sx, sy] = trimmed.split(",").map((s) => parseFloat(s.trim()));
+    if (!Number.isFinite(tx) || !Number.isFinite(ty) || !Number.isFinite(sx) || !Number.isFinite(sy)) {
+      return { is_correct: false, score: 0, feedback: "Click on the image." };
+    }
+    const dist = Math.hypot(sx - tx, sy - ty);
+    const radius = Number.isFinite(tr) ? tr : 0.15;
+    const ok = dist <= radius;
+    return {
+      is_correct: ok,
+      score: ok ? 1 : 0,
+      feedback: ok ? "Bullseye!" : "Not quite the right spot.",
+    };
+  }
+
+  if (q.type === "categorize") {
+    const correctArr = (Array.isArray(q.correct) ? q.correct : [String(q.correct)]).map(normalize);
+    let studentArr: string[] = [];
+    try {
+      const parsed = JSON.parse(trimmed || "[]");
+      if (Array.isArray(parsed)) studentArr = parsed.map((c) => normalize(String(c)));
+    } catch { /* ignore */ }
+    while (studentArr.length < correctArr.length) studentArr.push("");
+    const matches = correctArr.filter((c, i) => c === studentArr[i]).length;
+    const ok = matches === correctArr.length;
+    return {
+      is_correct: ok,
+      score: correctArr.length ? matches / correctArr.length : 0,
+      feedback: ok ? "All sorted!" : `Sorted ${matches} of ${correctArr.length}.`,
+    };
+  }
+
+  if (q.type === "reorder") {
+    const correctArr = (Array.isArray(q.correct) ? q.correct : [String(q.correct)]).map(normalize);
+    let studentArr: string[] = [];
+    try {
+      const parsed = JSON.parse(trimmed || "[]");
+      if (Array.isArray(parsed)) studentArr = parsed.map((c) => normalize(String(c)));
+    } catch { /* ignore */ }
+    const ok =
+      correctArr.length === studentArr.length &&
+      correctArr.every((c, i) => c === studentArr[i]);
+    return {
+      is_correct: ok,
+      score: ok ? 1 : 0,
+      feedback: ok ? "Perfect order!" : `Correct order: ${(Array.isArray(q.correct) ? q.correct : []).join(" · ")}`,
+    };
+  }
+
   if (q.type === "numeric") {
     const a = parseFloat(trimmed);
     const b = parseFloat(String(q.correct));

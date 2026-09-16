@@ -146,6 +146,7 @@ export async function parseTestFromDoc(formData: FormData): Promise<ParseResult>
       difficulty: q.difficulty as Difficulty,
       strand: q.strand,
       image_path: undefined,
+      audio_path: undefined,
     })),
   };
 
