@@ -12,6 +12,11 @@ export const QuestionType = z.enum([
   "match",
   "word_bank",
   "passage",
+  "number_line",
+  "coord_plot",
+  "hotspot",
+  "categorize",
+  "reorder",
 ]);
 export type QuestionType = z.infer<typeof QuestionType>;
 
@@ -42,6 +47,7 @@ export const Question = z.object({
   strand: nullish(z.string()),
   points: z.number().int().min(1).max(100).default(1).optional(),
   image_path: nullish(z.string()),
+  audio_path: nullish(z.string()),
 });
 export type Question = z.infer<typeof Question>;
 

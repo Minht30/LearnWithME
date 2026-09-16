@@ -32,6 +32,11 @@ const TYPES: { value: QuestionType; label: string; hint: string }[] = [
   { value: "word_bank",    label: "Word bank fill",        hint: "Cloze with words to pick from." },
   { value: "highlight",    label: "Highlight words",       hint: "Student clicks matching words in the prompt." },
   { value: "match",        label: "Match pairs",           hint: "Two columns to match." },
+  { value: "categorize",   label: "Sort into buckets",     hint: "Assign items to categories." },
+  { value: "reorder",      label: "Reorder words",         hint: "Arrange scrambled words." },
+  { value: "number_line",  label: "Number line",           hint: "Tap a spot on a line." },
+  { value: "coord_plot",   label: "Coordinate plot",       hint: "Plot (x,y) on a grid." },
+  { value: "hotspot",      label: "Image hotspot",         hint: "Click the right area of an image." },
   { value: "passage",      label: "Reading passage",       hint: "Non-scored text block above other questions." },
   { value: "short",        label: "Short answer",          hint: "Single line of text." },
   { value: "long",         label: "Written response",      hint: "Paragraph, teacher-graded." },
@@ -74,6 +79,11 @@ function newDraft(type: QuestionType = "mcq"): Draft {
   if (type === "highlight")    { seed.prompt = "The quick brown fox jumps over the lazy dog."; seed.correct = []; }
   if (type === "match")        { seed.choices = ["Cat", "Dog"]; seed.correct = ["Meow", "Bark"]; }
   if (type === "passage")      { seed.prompt = ""; seed.points = 0; }
+  if (type === "number_line")  { seed.choices = ["0", "10"]; seed.correct = "5"; }
+  if (type === "coord_plot")   { seed.choices = ["-5", "5", "-5", "5"]; seed.correct = "3,4"; }
+  if (type === "hotspot")      { seed.correct = "0.5,0.5,0.15"; }
+  if (type === "categorize")   { seed.choices = ["dog", "run", "cat", "jump"]; seed.correct = ["Noun", "Verb", "Noun", "Verb"]; }
+  if (type === "reorder")      { seed.choices = ["the", "quick", "brown", "fox"]; seed.correct = ["the", "quick", "brown", "fox"]; }
   return seed;
 }
 
@@ -229,6 +239,23 @@ export default function ManualBuilderPage() {
         const lefts = q.choices.filter((c) => c.trim());
         const rights = (Array.isArray(q.correct) ? q.correct : []).filter((c) => c.trim());
         if (lefts.length < 2 || rights.length !== lefts.length) return `${label}: fill in matching Left/Right pairs (at least 2).`;
+      } else if (q.type === "number_line") {
+        if (!q.correct || !String(q.correct).trim()) return `${label}: target number needed.`;
+      } else if (q.type === "coord_plot") {
+        const parts = String(q.correct).split(",");
+        if (parts.length !== 2 || parts.some((p) => !Number.isFinite(parseFloat(p.trim())))) {
+          return `${label}: target point should be x,y (e.g. 3,4).`;
+        }
+      } else if (q.type === "hotspot") {
+        if (!q.imagePath) return `${label}: hotspot needs an image.`;
+      } else if (q.type === "categorize") {
+        const items = q.choices.filter((c) => c.trim());
+        const buckets = Array.isArray(q.correct) ? q.correct.filter((b) => b.trim()) : [];
+        if (items.length < 2 || items.length !== buckets.length) return `${label}: every item needs a bucket.`;
+      } else if (q.type === "reorder") {
+        const tiles = q.choices.filter((c) => c.trim());
+        const order = Array.isArray(q.correct) ? q.correct.filter((c) => c.trim()) : [];
+        if (tiles.length < 2 || order.length === 0) return `${label}: add at least two tiles and one correct order.`;
       } else if (q.type === "word_bank") {
         if (!q.prompt.includes("[BLANK]")) return `${label}: word-bank prompt needs at least one [BLANK].`;
         const blanks = q.prompt.match(/\[BLANK\]/g)?.length ?? 0;
@@ -276,10 +303,13 @@ export default function ManualBuilderPage() {
         duration_min: timeLimitOn ? duration : 0,
         questions: questions.map((q) => {
           const type = q.type;
-          const choices =
-            type === "mcq" || type === "multi_select" || type === "match" || type === "word_bank"
-              ? q.choices.filter((c) => c.trim())
-              : undefined;
+          const arrChoiceTypes = new Set([
+            "mcq", "multi_select", "match", "word_bank",
+            "categorize", "reorder", "number_line", "coord_plot",
+          ]);
+          const choices = arrChoiceTypes.has(type)
+            ? q.choices.map((c) => String(c).trim())
+            : undefined;
           let correct: string | number | string[] = "";
           if (q.manualGrade) {
             // Sentinel: empty string / empty array means the teacher will grade
@@ -290,12 +320,13 @@ export default function ManualBuilderPage() {
               ? [] : "";
           } else if (
             type === "multi_select" || type === "cloze" ||
-            type === "word_bank" || type === "highlight" || type === "match"
+            type === "word_bank" || type === "highlight" || type === "match" ||
+            type === "categorize" || type === "reorder"
           ) {
             correct = Array.isArray(q.correct)
               ? q.correct.map((s) => String(s).trim()).filter((s) => s.length > 0)
               : [String(q.correct)];
-          } else if (type === "numeric") {
+          } else if (type === "numeric" || type === "number_line" || type === "coord_plot" || type === "hotspot") {
             correct = String(q.correct).trim();
           } else if (type === "true_false") {
             correct = String(q.correct).toLowerCase() === "true" ? "true" : "false";
@@ -803,6 +834,184 @@ function AnswerEditor({
       <p className="text-xs text-muted-foreground italic">
         Reading passages don&apos;t need an answer. Add the passage text in the prompt above; questions that follow will reference it.
       </p>
+    );
+  }
+
+  if (q.type === "number_line") {
+    return (
+      <div className="grid grid-cols-3 gap-2">
+        <div>
+          <Label className="mb-1 block text-xs">Min</Label>
+          <Input value={q.choices[0] ?? "0"} onChange={(e) => onPatch({ choices: [e.target.value, q.choices[1] ?? "10"] })} className="rounded-xl h-9" />
+        </div>
+        <div>
+          <Label className="mb-1 block text-xs">Max</Label>
+          <Input value={q.choices[1] ?? "10"} onChange={(e) => onPatch({ choices: [q.choices[0] ?? "0", e.target.value] })} className="rounded-xl h-9" />
+        </div>
+        <div>
+          <Label className="mb-1 block text-xs">Target</Label>
+          <Input value={String(q.correct)} onChange={(e) => onPatch({ correct: e.target.value })} className="rounded-xl h-9" />
+        </div>
+      </div>
+    );
+  }
+
+  if (q.type === "coord_plot") {
+    const c = [q.choices[0] ?? "-5", q.choices[1] ?? "5", q.choices[2] ?? "-5", q.choices[3] ?? "5"];
+    const setC = (i: number, v: string) => {
+      const next = [...c]; next[i] = v; onPatch({ choices: next });
+    };
+    return (
+      <div className="space-y-3">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+          <div><Label className="mb-1 block text-xs">X min</Label><Input value={c[0]} onChange={(e) => setC(0, e.target.value)} className="rounded-xl h-9" /></div>
+          <div><Label className="mb-1 block text-xs">X max</Label><Input value={c[1]} onChange={(e) => setC(1, e.target.value)} className="rounded-xl h-9" /></div>
+          <div><Label className="mb-1 block text-xs">Y min</Label><Input value={c[2]} onChange={(e) => setC(2, e.target.value)} className="rounded-xl h-9" /></div>
+          <div><Label className="mb-1 block text-xs">Y max</Label><Input value={c[3]} onChange={(e) => setC(3, e.target.value)} className="rounded-xl h-9" /></div>
+        </div>
+        <div>
+          <Label className="mb-1 block text-xs">Target (x,y)</Label>
+          <Input value={String(q.correct)} onChange={(e) => onPatch({ correct: e.target.value })} placeholder="3,4" className="rounded-xl h-9 max-w-[160px]" />
+        </div>
+      </div>
+    );
+  }
+
+  if (q.type === "hotspot") {
+    const [tx, ty, tr] = String(q.correct).split(",").map((s) => s.trim());
+    const set = (nx: string, ny: string, nr: string) => onPatch({ correct: `${nx},${ny},${nr}` });
+    return (
+      <div className="space-y-2">
+        <p className="text-xs text-muted-foreground">Add an image below, then fine-tune the target coordinates on the test detail page.</p>
+        <div className="grid grid-cols-3 gap-2">
+          <div><Label className="mb-1 block text-xs">X (0-1)</Label><Input value={tx ?? "0.5"} onChange={(e) => set(e.target.value, ty ?? "0.5", tr ?? "0.15")} className="rounded-xl h-9" /></div>
+          <div><Label className="mb-1 block text-xs">Y (0-1)</Label><Input value={ty ?? "0.5"} onChange={(e) => set(tx ?? "0.5", e.target.value, tr ?? "0.15")} className="rounded-xl h-9" /></div>
+          <div><Label className="mb-1 block text-xs">Radius</Label><Input value={tr ?? "0.15"} onChange={(e) => set(tx ?? "0.5", ty ?? "0.5", e.target.value)} className="rounded-xl h-9" /></div>
+        </div>
+      </div>
+    );
+  }
+
+  if (q.type === "categorize") {
+    const items = q.choices;
+    const buckets = Array.isArray(q.correct) ? q.correct : [];
+    while (buckets.length < items.length) buckets.push("");
+    const uniqueBuckets = [...new Set(buckets.filter((b) => b && b.trim()))];
+    return (
+      <div className="space-y-2">
+        <Label className="mb-1 block text-xs uppercase tracking-wide font-semibold text-muted-foreground">Items and their bucket</Label>
+        {items.map((it, i) => (
+          <div key={i} className="flex items-center gap-2">
+            <span className="w-6 font-mono text-xs text-muted-foreground">#{i + 1}</span>
+            <Input
+              value={it}
+              onChange={(e) => {
+                const next = [...items]; next[i] = e.target.value; onPatch({ choices: next });
+              }}
+              className="rounded-xl h-9 flex-1"
+              placeholder="Item"
+            />
+            <span className="text-muted-foreground">→</span>
+            <Input
+              value={buckets[i] ?? ""}
+              onChange={(e) => {
+                const next = [...buckets]; next[i] = e.target.value; onPatch({ correct: next });
+              }}
+              className="rounded-xl h-9 flex-1"
+              placeholder="Bucket"
+              list={`b-${i}`}
+            />
+            <datalist id={`b-${i}`}>{uniqueBuckets.map((b) => <option key={b} value={b} />)}</datalist>
+            <button
+              type="button"
+              onClick={() => {
+                onPatch({
+                  choices: items.filter((_, j) => j !== i),
+                  correct: buckets.filter((_, j) => j !== i),
+                });
+              }}
+              aria-label="Remove item"
+              className="text-muted-foreground hover:text-foreground"
+            >
+              <XIcon className="h-4 w-4" />
+            </button>
+          </div>
+        ))}
+        <button
+          type="button"
+          onClick={() => onPatch({ choices: [...items, ""], correct: [...buckets, uniqueBuckets[0] ?? ""] })}
+          className="inline-flex items-center gap-1 rounded-full border px-3 py-1 text-xs font-semibold text-muted-foreground hover:text-foreground"
+        >
+          <Plus className="h-3 w-3" /> Add item
+        </button>
+      </div>
+    );
+  }
+
+  if (q.type === "reorder") {
+    const tiles = q.choices;
+    const order = Array.isArray(q.correct) ? q.correct : [];
+    return (
+      <div className="space-y-3">
+        <div>
+          <Label className="mb-1 block text-xs">Tiles (shown scrambled)</Label>
+          <div className="flex flex-wrap gap-2">
+            {tiles.map((w, i) => (
+              <div key={i} className="inline-flex items-center gap-1 rounded-full border-2 border-border bg-background px-2 py-1">
+                <input
+                  value={w}
+                  onChange={(e) => {
+                    const next = [...tiles]; next[i] = e.target.value; onPatch({ choices: next });
+                  }}
+                  className="h-6 w-20 bg-transparent text-sm outline-none"
+                />
+                <button
+                  type="button"
+                  onClick={() => onPatch({ choices: tiles.filter((_, j) => j !== i) })}
+                  aria-label="Remove tile"
+                  className="text-muted-foreground hover:text-foreground"
+                >
+                  <XIcon className="h-3 w-3" />
+                </button>
+              </div>
+            ))}
+            <button
+              type="button"
+              onClick={() => onPatch({ choices: [...tiles, ""] })}
+              className="inline-flex items-center gap-1 rounded-full border-2 border-dashed border-border px-3 py-1 text-xs font-semibold text-muted-foreground hover:text-foreground"
+            >
+              <Plus className="h-3 w-3" /> Add tile
+            </button>
+          </div>
+        </div>
+        <div>
+          <Label className="mb-1 block text-xs">Correct order — click tiles below to build it</Label>
+          <div className="flex flex-wrap gap-2 rounded-2xl border-2 border-dashed border-[var(--brand)]/40 p-3 min-h-[3rem]">
+            {order.map((w, i) => (
+              <button
+                key={i}
+                type="button"
+                onClick={() => onPatch({ correct: order.filter((_, j) => j !== i) })}
+                className="inline-flex items-center gap-1 rounded-full bg-[var(--brand)] text-primary-foreground px-2 py-1 text-sm font-semibold"
+              >
+                <span className="font-mono text-xs opacity-70">{i + 1}</span>
+                {w}
+                <XIcon className="h-3 w-3" />
+              </button>
+            ))}
+            {tiles.filter((w) => w.trim() && !order.includes(w)).map((w, i) => (
+              <button
+                key={`t-${i}`}
+                type="button"
+                onClick={() => onPatch({ correct: [...order, w] })}
+                className="rounded-full border-2 border-border bg-background px-2 py-1 text-xs font-semibold text-muted-foreground hover:text-foreground"
+              >
+                + {w}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
     );
   }
 

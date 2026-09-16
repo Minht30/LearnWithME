@@ -6,7 +6,8 @@ import { motion } from "framer-motion";
 import { Card } from "@/components/ui/card";
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { Check, Sparkles, FileText, CheckCircle2, RotateCcw, MessageSquare, Clock } from "lucide-react";
+import { Check, Sparkles, FileText, CheckCircle2, RotateCcw, MessageSquare, Clock, Home } from "lucide-react";
+import { formatDistanceToNow } from "@/lib/utils/date";
 import { Confetti } from "@/components/ui/confetti";
 import { Mascot } from "@/components/ui/mascot";
 import { AppBrand, AppHeaderControls } from "@/components/ui/app-header";
@@ -103,15 +104,10 @@ export function ResultView({
           ))}
         </div>
 
-        <div className="mt-10 flex justify-center gap-3">
-          <Link href="/" className={cn(buttonVariants({ variant: "outline" }), "rounded-full")}>
-            Done
+        <div className="mt-10 flex flex-wrap justify-center gap-3">
+          <Link href="/student/home" className={cn(buttonVariants({ variant: "candy" }), "rounded-full h-11 px-6")}>
+            <Home className="mr-1.5 h-4 w-4" /> Back to my tests
           </Link>
-          {student && (
-            <Link href={`/student/${student.anon_token}`} className={cn(buttonVariants({ variant: "candy" }), "rounded-full h-11 px-6")}>
-              Back to my tests
-            </Link>
-          )}
         </div>
       </main>
     </div>
@@ -249,6 +245,11 @@ function ReviewCard({
                 <div className="mt-2 rounded-xl border-2 border-[var(--accent)]/40 bg-[color-mix(in_oklab,var(--accent)_10%,transparent)] p-3">
                   <div className="mb-1 flex items-center gap-1.5 text-xs uppercase tracking-wide font-semibold text-[color-mix(in_oklab,var(--accent)_80%,black)] dark:text-[var(--accent)]">
                     <MessageSquare className="h-3 w-3" /> From your teacher
+                    {a.feedback_at && (
+                      <span className="ml-1 normal-case tracking-normal font-normal text-muted-foreground">
+                        · {formatDistanceToNow(a.feedback_at)}
+                      </span>
+                    )}
                   </div>
                   <p className="text-sm">{a.teacher_feedback}</p>
                 </div>
@@ -262,16 +263,29 @@ function ReviewCard({
 }
 
 function TeacherStatusBanner({ attempt }: { attempt: DbAttempt }) {
+  const wasUnread = !!attempt.reviewed_at && !attempt.feedback_read_at;
+  const timeChip = attempt.reviewed_at ? (
+    <span className="ml-2 rounded-full bg-background/60 px-2 py-0.5 text-xs font-normal text-muted-foreground">
+      sent {formatDistanceToNow(attempt.reviewed_at)}
+    </span>
+  ) : null;
+  const newBadge = wasUnread ? (
+    <span className="rounded-full bg-[var(--brand)] px-2 py-0.5 text-xs font-bold text-white">NEW</span>
+  ) : null;
+
   if (attempt.status === "approved") {
     return (
       <div className="mb-6 rounded-2xl border-2 border-[var(--success)] bg-[color-mix(in_oklab,var(--success)_12%,transparent)] p-4">
         <div className="flex items-start gap-3">
           <CheckCircle2 className="h-6 w-6 shrink-0 text-[var(--success)]" />
           <div className="min-w-0 flex-1">
-            <p className="font-display text-lg font-bold">Your teacher approved your work! 🎉</p>
+            <p className="font-display text-lg font-bold flex items-center gap-2 flex-wrap">
+              Your teacher approved your work! 🎉 {newBadge}
+            </p>
             {attempt.teacher_note && (
               <p className="mt-1 text-sm">{attempt.teacher_note}</p>
             )}
+            {timeChip}
           </div>
         </div>
       </div>
@@ -283,13 +297,16 @@ function TeacherStatusBanner({ attempt }: { attempt: DbAttempt }) {
         <div className="flex items-start gap-3">
           <RotateCcw className="h-6 w-6 shrink-0 text-[var(--warning)]" />
           <div className="min-w-0 flex-1">
-            <p className="font-display text-lg font-bold">Give it another try</p>
+            <p className="font-display text-lg font-bold flex items-center gap-2 flex-wrap">
+              Give it another try {newBadge}
+            </p>
             {attempt.teacher_note && (
               <p className="mt-1 text-sm">{attempt.teacher_note}</p>
             )}
-            <p className="mt-2 text-xs text-muted-foreground">
-              Open the test from your home page to redo it.
-            </p>
+            <div className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
+              <span>Open the test from your home page to redo it.</span>
+              {timeChip}
+            </div>
           </div>
         </div>
       </div>

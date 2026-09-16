@@ -11,19 +11,26 @@ import {
   Trash2, Check, X as XIcon, Pencil, GripVertical, ImagePlus, Loader2,
   Plus, ChevronDown, Calculator, ListChecks, ToggleLeft, TextCursorInput,
   MessageSquare, Type as TypeIcon, Highlighter, ArrowLeftRight, Package,
-  BookOpen, GraduationCap,
+  BookOpen, GraduationCap, Minus, Target, Layers, MoveHorizontal, Mic, Bookmark,
 } from "lucide-react";
 import {
   deleteQuestion, updateQuestion, reorderQuestions, addQuestion,
 } from "@/app/actions/test-actions";
-import { uploadQuestionImage, removeQuestionImage } from "@/app/actions/question-media";
+import {
+  uploadQuestionImage, removeQuestionImage,
+  uploadQuestionAudio,
+} from "@/app/actions/question-media";
+import {
+  saveToBank, listBank, insertFromBank, deleteBankItem,
+} from "@/app/actions/question-bank";
+import type { DbBankItem } from "@/lib/db/types";
 import { RichText } from "@/components/ui/rich-text";
 import { NumberStepper } from "@/components/ui/number-stepper";
 import { ImagePicker } from "@/components/ui/image-picker";
 import type { DbQuestion } from "@/lib/db/types";
 import type { QuestionType } from "@/lib/schemas/question";
 
-type QuestionWithMedia = DbQuestion & { imageUrl?: string | null };
+type QuestionWithMedia = DbQuestion & { imageUrl?: string | null; audioUrl?: string | null };
 
 const TYPE_META: Record<string, { label: string; icon: React.ReactNode; help: string }> = {
   mcq:          { label: "Multiple choice",     icon: <ListChecks className="h-3.5 w-3.5" />,      help: "One correct choice from a list." },
@@ -35,13 +42,19 @@ const TYPE_META: Record<string, { label: string; icon: React.ReactNode; help: st
   highlight:    { label: "Highlight words",     icon: <Highlighter className="h-3.5 w-3.5" />,     help: "Student clicks the words that fit." },
   match:        { label: "Match pairs",         icon: <ArrowLeftRight className="h-3.5 w-3.5" />,  help: "Two columns to match up." },
   passage:      { label: "Reading passage",     icon: <BookOpen className="h-3.5 w-3.5" />,        help: "Non-scored text block above other questions." },
+  number_line:  { label: "Number line",         icon: <Minus className="h-3.5 w-3.5" />,           help: "Student taps a spot on a number line." },
+  coord_plot:   { label: "Coordinate plot",     icon: <Target className="h-3.5 w-3.5" />,          help: "Student plots (x,y) on a grid." },
+  hotspot:      { label: "Image hotspot",       icon: <Target className="h-3.5 w-3.5" />,          help: "Student clicks the right area of an image." },
+  categorize:   { label: "Sort into buckets",   icon: <Layers className="h-3.5 w-3.5" />,          help: "Student assigns items to categories." },
+  reorder:      { label: "Reorder words",       icon: <MoveHorizontal className="h-3.5 w-3.5" />,  help: "Student arranges words in order." },
   short:        { label: "Short answer",        icon: <TypeIcon className="h-3.5 w-3.5" />,        help: "Single line of text." },
   long:         { label: "Written response",    icon: <MessageSquare className="h-3.5 w-3.5" />,   help: "Paragraph, teacher-graded." },
 };
 const ADD_TYPES: QuestionType[] = [
   "mcq", "multi_select", "true_false", "numeric",
   "cloze", "word_bank", "highlight", "match",
-  "passage", "short", "long",
+  "categorize", "reorder", "number_line", "coord_plot",
+  "hotspot", "passage", "short", "long",
 ];
 
 export function QuestionList({
@@ -157,17 +170,121 @@ export function QuestionList({
             </div>
           </Card>
         ) : (
-          <Button
-            onClick={() => setOpenAdd(true)}
-            variant="candy"
-            className="rounded-full h-11 px-6"
-            disabled={pending}
-          >
-            <Plus className="mr-1 h-4 w-4" /> Add question
-          </Button>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              onClick={() => setOpenAdd(true)}
+              variant="candy"
+              className="rounded-full h-11 px-6"
+              disabled={pending}
+            >
+              <Plus className="mr-1 h-4 w-4" /> Add question
+            </Button>
+            <BankPicker testId={testId} />
+          </div>
         )}
       </div>
     </div>
+  );
+}
+
+function BankPicker({ testId }: { testId: string }) {
+  const [open, setOpen] = useState(false);
+  const [items, setItems] = useState<DbBankItem[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [pending, startTransition] = useTransition();
+
+  async function openPicker() {
+    setOpen(true);
+    setLoading(true);
+    const data = await listBank();
+    setItems(data);
+    setLoading(false);
+  }
+  function insert(id: string) {
+    startTransition(async () => {
+      const res = await insertFromBank(testId, id);
+      if (res.ok) { toast.success("Question added from bank."); setOpen(false); }
+      else toast.error(res.error);
+    });
+  }
+  function del(id: string) {
+    if (!confirm("Remove this bank item permanently?")) return;
+    startTransition(async () => {
+      const res = await deleteBankItem(id);
+      if (res.ok) { setItems((prev) => prev.filter((i) => i.id !== id)); toast.success("Removed from bank."); }
+      else toast.error(res.error);
+    });
+  }
+
+  return (
+    <>
+      <Button
+        variant="outline"
+        className="rounded-full h-11 px-4"
+        onClick={openPicker}
+      >
+        <Bookmark className="mr-1 h-4 w-4" /> From bank
+      </Button>
+      {open && (
+        <div className="fixed inset-0 z-40 bg-black/40 flex items-start justify-center p-4 pt-16" onClick={() => setOpen(false)}>
+          <div
+            className="w-full max-w-lg rounded-3xl bg-popover p-4 shadow-xl max-h-[70vh] overflow-hidden flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-label="Question bank"
+          >
+            <div className="mb-3 flex items-center justify-between">
+              <h3 className="font-display text-xl font-bold">Question bank</h3>
+              <button onClick={() => setOpen(false)} aria-label="Close" className="text-muted-foreground hover:text-foreground">
+                <XIcon className="h-5 w-5" />
+              </button>
+            </div>
+            {loading ? (
+              <div className="p-10 text-center text-muted-foreground">
+                <Loader2 className="mx-auto h-5 w-5 animate-spin" />
+              </div>
+            ) : items.length === 0 ? (
+              <p className="p-6 text-center text-sm text-muted-foreground">
+                Your bank is empty. Save any question with the bookmark icon on its row to reuse it later.
+              </p>
+            ) : (
+              <ul className="overflow-y-auto space-y-2 flex-1">
+                {items.map((it) => (
+                  <li key={it.id} className="rounded-2xl border p-3 hover:border-[var(--brand)]/60">
+                    <div className="flex items-start gap-3">
+                      <div className="min-w-0 flex-1">
+                        <p className="font-semibold text-sm truncate">{it.label}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {(it.snapshot as { type?: string }).type ?? "—"}
+                          {it.subject ? ` · ${it.subject}` : ""}
+                          {it.grade ? ` · Grade ${it.grade}` : ""}
+                        </p>
+                      </div>
+                      <button
+                        onClick={() => del(it.id)}
+                        aria-label="Delete bank item"
+                        className="text-muted-foreground hover:text-[var(--danger)]"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                      <Button
+                        onClick={() => insert(it.id)}
+                        variant="candy"
+                        size="sm"
+                        className="rounded-full"
+                        disabled={pending}
+                      >
+                        <Plus className="mr-1 h-3 w-3" /> Insert
+                      </Button>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </div>
+      )}
+    </>
   );
 }
 
@@ -198,6 +315,8 @@ function QuestionRow({
   const [points, setPoints] = useState(q.points ?? 1);
   const [rubric, setRubric] = useState(q.rubric ?? "");
   const fileRef = useRef<HTMLInputElement | null>(null);
+  const audioRef = useRef<HTMLInputElement | null>(null);
+  const [uploadingAudio, setUploadingAudio] = useState(false);
   const supportsManualGrade = q.type !== "passage" && q.type !== "true_false";
 
   function onSave() {
@@ -244,6 +363,31 @@ function QuestionRow({
     startTransition(async () => {
       const res = await removeQuestionImage(testId, q.id);
       if (res.ok) { onImageChange(null, null); toast.success("Image removed."); }
+      else toast.error(res.error);
+    });
+  }
+
+  async function onAudioFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    setUploadingAudio(true);
+    const fd = new FormData();
+    fd.append("file", f);
+    fd.append("testId", testId);
+    fd.append("questionId", q.id);
+    const res = await uploadQuestionAudio(fd);
+    setUploadingAudio(false);
+    e.target.value = "";
+    if (res.ok) toast.success("Audio added — reload to hear it in the student view.");
+    else toast.error(res.error);
+  }
+
+  function onSaveToBank() {
+    const label = window.prompt("Label this question for your bank:", q.prompt.slice(0, 60));
+    if (!label) return;
+    startTransition(async () => {
+      const res = await saveToBank(q.id, label);
+      if (res.ok) toast.success("Saved to bank.");
       else toast.error(res.error);
     });
   }
@@ -357,6 +501,11 @@ function QuestionRow({
                 // eslint-disable-next-line @next/next/no-img-element
                 <img src={q.imageUrl} alt="" className="mt-3 max-h-64 rounded-xl border object-contain bg-background" />
               )}
+              {q.audioUrl && (
+                <div className="mt-3">
+                  <audio controls src={q.audioUrl} className="w-full max-w-md" preload="none" />
+                </div>
+              )}
               <div className="mt-3">
                 <AnswerPreview q={q} />
               </div>
@@ -383,6 +532,21 @@ function QuestionRow({
                   {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <ImagePlus className="h-4 w-4" />}
                 </Button>
               )}
+              {!q.audioUrl && (
+                <Button size="icon-sm" variant="ghost" onClick={() => audioRef.current?.click()} aria-label="Add audio">
+                  {uploadingAudio ? <Loader2 className="h-4 w-4 animate-spin" /> : <Mic className="h-4 w-4" />}
+                </Button>
+              )}
+              <Button
+                size="icon-sm"
+                variant="ghost"
+                onClick={onSaveToBank}
+                disabled={pending}
+                aria-label="Save to question bank"
+                title="Save to bank"
+              >
+                <Bookmark className="h-4 w-4" />
+              </Button>
               <Button size="icon-sm" variant="ghost" onClick={onDelete} disabled={pending} aria-label="Delete">
                 <Trash2 className="h-4 w-4" />
               </Button>
@@ -399,6 +563,7 @@ function QuestionRow({
               e.target.value = "";
             }}
           />
+          <input ref={audioRef} type="file" accept="audio/*" className="hidden" onChange={onAudioFile} />
         </div>
       </div>
     </Card>
@@ -525,6 +690,212 @@ function AnswerEditor({
       <p className="text-xs text-muted-foreground italic">
         This is a display-only passage. It doesn&apos;t count toward the score. Students see the prompt as a text block above the following questions.
       </p>
+    );
+  }
+
+  if (type === "number_line") {
+    const min = String(choices[0] ?? "0");
+    const max = String(choices[1] ?? "10");
+    return (
+      <div className="space-y-3">
+        <div className="grid grid-cols-3 gap-2">
+          <div>
+            <label className="mb-1 block text-xs font-semibold text-muted-foreground">Min</label>
+            <Input value={min} onChange={(e) => setChoices([e.target.value, max])} className="rounded-xl h-9" />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-semibold text-muted-foreground">Max</label>
+            <Input value={max} onChange={(e) => setChoices([min, e.target.value])} className="rounded-xl h-9" />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-semibold text-muted-foreground">Target</label>
+            <Input value={String(correct)} onChange={(e) => setCorrect(e.target.value)} className="rounded-xl h-9" placeholder="e.g. 7" />
+          </div>
+        </div>
+        <p className="text-xs text-muted-foreground">Point snaps to a sensible step based on the range.</p>
+      </div>
+    );
+  }
+
+  if (type === "coord_plot") {
+    const c = [choices[0] ?? "-5", choices[1] ?? "5", choices[2] ?? "-5", choices[3] ?? "5"].map(String);
+    const setC = (idx: number, val: string) => {
+      const next = [...c];
+      next[idx] = val;
+      setChoices(next);
+    };
+    return (
+      <div className="space-y-3">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+          <div><label className="mb-1 block text-xs font-semibold text-muted-foreground">X min</label><Input value={c[0]} onChange={(e) => setC(0, e.target.value)} className="rounded-xl h-9" /></div>
+          <div><label className="mb-1 block text-xs font-semibold text-muted-foreground">X max</label><Input value={c[1]} onChange={(e) => setC(1, e.target.value)} className="rounded-xl h-9" /></div>
+          <div><label className="mb-1 block text-xs font-semibold text-muted-foreground">Y min</label><Input value={c[2]} onChange={(e) => setC(2, e.target.value)} className="rounded-xl h-9" /></div>
+          <div><label className="mb-1 block text-xs font-semibold text-muted-foreground">Y max</label><Input value={c[3]} onChange={(e) => setC(3, e.target.value)} className="rounded-xl h-9" /></div>
+        </div>
+        <div>
+          <label className="mb-1 block text-xs font-semibold text-muted-foreground">Target point (x,y)</label>
+          <Input value={String(correct)} onChange={(e) => setCorrect(e.target.value)} className="rounded-xl h-9 max-w-[200px]" placeholder="3,4" />
+        </div>
+      </div>
+    );
+  }
+
+  if (type === "hotspot") {
+    const [tx, ty, tr] = String(correct).split(",").map((s) => s.trim());
+    const setPt = (nx: string, ny: string, nr: string) => setCorrect(`${nx},${ny},${nr}`);
+    return (
+      <div className="space-y-2">
+        <p className="text-xs text-muted-foreground">
+          Add an image on this question, then click the correct spot in the preview below to set the target.
+        </p>
+        <div className="grid grid-cols-3 gap-2">
+          <div>
+            <label className="mb-1 block text-xs font-semibold text-muted-foreground">Target X (0–1)</label>
+            <Input value={tx ?? "0.5"} onChange={(e) => setPt(e.target.value, ty ?? "0.5", tr ?? "0.15")} className="rounded-xl h-9" />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-semibold text-muted-foreground">Target Y (0–1)</label>
+            <Input value={ty ?? "0.5"} onChange={(e) => setPt(tx ?? "0.5", e.target.value, tr ?? "0.15")} className="rounded-xl h-9" />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-semibold text-muted-foreground">Radius (0–1)</label>
+            <Input value={tr ?? "0.15"} onChange={(e) => setPt(tx ?? "0.5", ty ?? "0.5", e.target.value)} className="rounded-xl h-9" />
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (type === "categorize") {
+    const items = choices;
+    const buckets = Array.isArray(correct) ? correct : [];
+    const uniqueBuckets = [...new Set(buckets.filter((b) => b && b.trim()))];
+    while (buckets.length < items.length) buckets.push("");
+    return (
+      <div className="space-y-3">
+        <label className="mb-1 block text-xs font-semibold text-muted-foreground">
+          Items and their correct bucket
+        </label>
+        <div className="space-y-2">
+          {items.map((it, i) => (
+            <div key={i} className="flex items-center gap-2">
+              <span className="w-6 font-mono text-xs text-muted-foreground">#{i + 1}</span>
+              <Input
+                value={it}
+                onChange={(e) => {
+                  const next = [...items];
+                  next[i] = e.target.value;
+                  setChoices(next);
+                }}
+                placeholder="Item"
+                className="rounded-xl h-9 flex-1"
+              />
+              <span className="text-muted-foreground">→</span>
+              <Input
+                value={buckets[i] ?? ""}
+                onChange={(e) => {
+                  const next = [...buckets];
+                  next[i] = e.target.value;
+                  setCorrect(next);
+                }}
+                placeholder="Bucket label"
+                className="rounded-xl h-9 flex-1"
+                list={`buckets-${i}`}
+              />
+              <datalist id={`buckets-${i}`}>
+                {uniqueBuckets.map((b) => <option key={b} value={b} />)}
+              </datalist>
+              <button
+                onClick={() => {
+                  setChoices(items.filter((_, j) => j !== i));
+                  setCorrect(buckets.filter((_, j) => j !== i));
+                }}
+                aria-label="Remove item"
+                className="text-muted-foreground hover:text-foreground"
+              >
+                <XIcon className="h-4 w-4" />
+              </button>
+            </div>
+          ))}
+          <button
+            onClick={() => { setChoices([...items, ""]); setCorrect([...buckets, uniqueBuckets[0] ?? ""]); }}
+            className="inline-flex items-center gap-1 rounded-full border px-3 py-1 text-xs font-semibold text-muted-foreground hover:text-foreground"
+          >
+            <Plus className="h-3 w-3" /> Add item
+          </button>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          Buckets are auto-collected from what you type above — you can repeat a label to grow a bucket.
+        </p>
+      </div>
+    );
+  }
+
+  if (type === "reorder") {
+    const words = choices;
+    const order = Array.isArray(correct) ? correct : [];
+    return (
+      <div className="space-y-3">
+        <div>
+          <label className="mb-1 block text-xs font-semibold text-muted-foreground">Word tiles (shown scrambled)</label>
+          <div className="flex flex-wrap gap-2">
+            {words.map((w, i) => (
+              <div key={i} className="inline-flex items-center gap-1 rounded-full border-2 border-border bg-background px-2 py-1">
+                <Input
+                  value={w}
+                  onChange={(e) => {
+                    const next = [...words];
+                    next[i] = e.target.value;
+                    setChoices(next);
+                  }}
+                  className="h-7 w-24 rounded-full border-0 shadow-none focus-visible:ring-0 px-1 text-sm"
+                />
+                <button
+                  onClick={() => setChoices(words.filter((_, j) => j !== i))}
+                  aria-label="Remove tile"
+                  className="text-muted-foreground hover:text-foreground"
+                >
+                  <XIcon className="h-3 w-3" />
+                </button>
+              </div>
+            ))}
+            <button
+              onClick={() => setChoices([...words, ""])}
+              className="inline-flex items-center gap-1 rounded-full border-2 border-dashed border-border px-3 py-1 text-xs font-semibold text-muted-foreground hover:text-foreground"
+            >
+              <Plus className="h-3 w-3" /> Add tile
+            </button>
+          </div>
+        </div>
+        <div>
+          <label className="mb-1 block text-xs font-semibold text-muted-foreground">Correct order</label>
+          <div className="flex flex-wrap gap-2 rounded-2xl border-2 border-dashed border-[var(--brand)]/40 p-3">
+            {order.map((w, i) => (
+              <div key={i} className="inline-flex items-center gap-1 rounded-full bg-[var(--brand)] text-primary-foreground px-2 py-1 text-sm font-semibold">
+                <span className="font-mono text-xs opacity-70">{i + 1}</span>
+                {w}
+                <button
+                  onClick={() => setCorrect(order.filter((_, j) => j !== i))}
+                  aria-label="Remove from order"
+                  className="opacity-70 hover:opacity-100"
+                >
+                  <XIcon className="h-3 w-3" />
+                </button>
+              </div>
+            ))}
+            {words.filter((w) => w.trim() && !order.includes(w)).map((w, i) => (
+              <button
+                key={`add-${i}`}
+                onClick={() => setCorrect([...order, w])}
+                className="rounded-full border-2 border-border bg-background px-2 py-1 text-xs font-semibold text-muted-foreground hover:text-foreground"
+              >
+                + {w}
+              </button>
+            ))}
+          </div>
+          <p className="mt-1 text-xs text-muted-foreground">Click a tile above to add it to the order. Repeat words are allowed as long as they appear in the tile list.</p>
+        </div>
+      </div>
     );
   }
 
@@ -851,6 +1222,62 @@ function AnswerPreview({ q }: { q: QuestionWithMedia }) {
     return (
       <p className="text-xs text-muted-foreground italic">
         Reading passage — not scored.
+      </p>
+    );
+  }
+  if (q.type === "number_line") {
+    return (
+      <p className="rounded-lg border border-[color-mix(in_oklab,var(--success)_40%,transparent)] bg-[color-mix(in_oklab,var(--success)_8%,transparent)] px-3 py-1.5 text-sm">
+        <span className="mr-2 font-mono text-xs uppercase text-[color-mix(in_oklab,var(--success)_80%,black)] dark:text-[var(--success)]">
+          Target on line {q.choices?.[0]}…{q.choices?.[1]}
+        </span>
+        {String(q.correct)}
+      </p>
+    );
+  }
+  if (q.type === "coord_plot") {
+    return (
+      <p className="rounded-lg border border-[color-mix(in_oklab,var(--success)_40%,transparent)] bg-[color-mix(in_oklab,var(--success)_8%,transparent)] px-3 py-1.5 text-sm">
+        <span className="mr-2 font-mono text-xs uppercase text-[color-mix(in_oklab,var(--success)_80%,black)] dark:text-[var(--success)]">
+          Target point
+        </span>
+        ({String(q.correct)})
+      </p>
+    );
+  }
+  if (q.type === "hotspot") {
+    return (
+      <p className="rounded-lg border border-[color-mix(in_oklab,var(--success)_40%,transparent)] bg-[color-mix(in_oklab,var(--success)_8%,transparent)] px-3 py-1.5 text-sm">
+        <span className="mr-2 font-mono text-xs uppercase text-[color-mix(in_oklab,var(--success)_80%,black)] dark:text-[var(--success)]">
+          Hotspot at
+        </span>
+        {String(q.correct)}
+        <span className="text-xs text-muted-foreground ml-2">(x, y, radius as fractions of the image)</span>
+      </p>
+    );
+  }
+  if (q.type === "categorize") {
+    const buckets = Array.isArray(q.correct) ? q.correct : [];
+    return (
+      <ul className="space-y-1 text-sm">
+        {(q.choices ?? []).map((item, i) => (
+          <li key={i} className="rounded border border-[color-mix(in_oklab,var(--success)_40%,transparent)] bg-[color-mix(in_oklab,var(--success)_8%,transparent)] px-2.5 py-1">
+            <RichText html={item} inline as="span" />
+            <span className="mx-2 text-muted-foreground">→</span>
+            <span className="font-semibold">{buckets[i] ?? "?"}</span>
+          </li>
+        ))}
+      </ul>
+    );
+  }
+  if (q.type === "reorder") {
+    const order = Array.isArray(q.correct) ? q.correct : [];
+    return (
+      <p className="rounded-lg border border-[color-mix(in_oklab,var(--success)_40%,transparent)] bg-[color-mix(in_oklab,var(--success)_8%,transparent)] px-3 py-1.5 text-sm">
+        <span className="mr-2 font-mono text-xs uppercase text-[color-mix(in_oklab,var(--success)_80%,black)] dark:text-[var(--success)]">
+          Order
+        </span>
+        {order.join(" → ")}
       </p>
     );
   }

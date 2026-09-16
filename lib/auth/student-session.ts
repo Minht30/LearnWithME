@@ -2,7 +2,9 @@ import { cookies } from "next/headers";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 const COOKIE = "lwm.student";
-const MAX_AGE = 60 * 60 * 8; // 8 hours
+// 60 days — comparable to Supabase teacher session so students stay signed
+// in across visits. Rotated on every successful sign-in.
+const MAX_AGE = 60 * 60 * 24 * 60;
 
 export async function setStudentSession(anonToken: string) {
   const store = await cookies();

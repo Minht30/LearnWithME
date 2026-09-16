@@ -70,6 +70,11 @@ export async function addQuestion(
     highlight:    { prompt: "Click every adjective in this sentence: The quick brown fox jumps over the lazy dog.", choices: null, correct: ["quick", "brown", "lazy"] },
     match:        { prompt: "Match each animal to the sound it makes.", choices: ["Cat", "Dog", "Cow"], correct: ["Meow", "Bark", "Moo"] },
     passage:      { prompt: "Paste the reading passage here. Students see this above the questions that follow.", choices: null, correct: "" },
+    number_line:  { prompt: "Place the point on the number line at 7.", choices: ["0", "10"], correct: "7" },
+    coord_plot:   { prompt: "Plot the point (3, 4) on the grid.", choices: ["-5", "5", "-5", "5"], correct: "3,4" },
+    hotspot:      { prompt: "Click the correct part of the image.", choices: null, correct: "0.5,0.5,0.15" },
+    categorize:   { prompt: "Sort each word into Noun or Verb.", choices: ["dog", "run", "cat", "jump"], correct: ["Noun", "Verb", "Noun", "Verb"] },
+    reorder:      { prompt: "Put the words in the correct order to make a sentence.", choices: ["fox", "the", "brown", "quick"], correct: ["the", "quick", "brown", "fox"] },
   };
   const d = defaults[type] ?? defaults.short;
 

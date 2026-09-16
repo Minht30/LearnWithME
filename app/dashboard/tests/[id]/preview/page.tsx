@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requireTeacherId } from "@/lib/auth/session";
-import { signQuestionImage } from "@/app/actions/question-media";
+import { signQuestionImage, signQuestionAudio } from "@/app/actions/question-media";
 import { PracticeRoom } from "@/app/take/[attemptId]/practice-room";
 import { Card } from "@/components/ui/card";
 import { Eye } from "lucide-react";
@@ -33,6 +33,7 @@ export default async function TeacherTestPreview({
     ((questions ?? []) as DbQuestion[]).map(async (q) => ({
       ...q,
       imageUrl: q.image_path ? await signQuestionImage(q.image_path) : null,
+      audioUrl: q.audio_path ? await signQuestionAudio(q.audio_path) : null,
     }))
   );
 
@@ -50,6 +51,7 @@ export default async function TeacherTestPreview({
     reviewed_at: null,
     reviewed_by: null,
     results_email_sent_at: null,
+    feedback_read_at: null,
   };
 
   return (

@@ -24,7 +24,7 @@ import {
 } from "lucide-react";
 
 type WorkFile = { url: string; mime: string; path: string };
-type QuestionWithMedia = DbQuestion & { imageUrl?: string | null };
+type QuestionWithMedia = DbQuestion & { imageUrl?: string | null; audioUrl?: string | null };
 
 type Props = {
   attempt: DbAttempt;
@@ -167,6 +167,43 @@ function gradeLocally(q: DbQuestion, response: string): LocalGrade {
       correctAnswer,
       feedback: ok ? stableEncouragement(q.id) : `Matched ${matches} of ${leftArr.length}.`,
     };
+  }
+  if (q.type === "number_line") {
+    const t = parseFloat(String(q.correct));
+    const v = parseFloat(trimmed);
+    const ok = Number.isFinite(t) && Number.isFinite(v) && Math.abs(v - t) < 1e-6;
+    return { isCorrect: ok, correctAnswer, feedback: ok ? stableEncouragement(q.id) : `Target: ${q.correct}` };
+  }
+  if (q.type === "coord_plot") {
+    const [tx, ty] = String(q.correct).split(",").map((s) => parseFloat(s.trim()));
+    const [sx, sy] = trimmed.split(",").map((s) => parseFloat(s.trim()));
+    const ok = Number.isFinite(tx) && Number.isFinite(ty) && Number.isFinite(sx) && Number.isFinite(sy) && Math.abs(sx - tx) < 1e-6 && Math.abs(sy - ty) < 1e-6;
+    return { isCorrect: ok, correctAnswer, feedback: ok ? stableEncouragement(q.id) : `Target: (${q.correct})` };
+  }
+  if (q.type === "hotspot") {
+    const [tx, ty, tr] = String(q.correct).split(",").map((s) => parseFloat(s.trim()));
+    const [sx, sy] = trimmed.split(",").map((s) => parseFloat(s.trim()));
+    if (![tx, ty, sx, sy].every(Number.isFinite)) return { isCorrect: false, correctAnswer, feedback: "Click on the image." };
+    const dist = Math.hypot(sx - tx, sy - ty);
+    const radius = Number.isFinite(tr) ? tr : 0.15;
+    const ok = dist <= radius;
+    return { isCorrect: ok, correctAnswer, feedback: ok ? stableEncouragement(q.id) : "Try somewhere else." };
+  }
+  if (q.type === "categorize") {
+    const correctArr = (Array.isArray(q.correct) ? q.correct : [String(q.correct)]).map(norm);
+    let studentArr: string[] = [];
+    try { const p = JSON.parse(trimmed || "[]"); if (Array.isArray(p)) studentArr = p.map((x) => norm(String(x))); } catch { /* empty */ }
+    while (studentArr.length < correctArr.length) studentArr.push("");
+    const matches = correctArr.filter((c, i) => c === studentArr[i]).length;
+    const ok = matches === correctArr.length;
+    return { isCorrect: ok, correctAnswer, feedback: ok ? stableEncouragement(q.id) : `Sorted ${matches} of ${correctArr.length}.` };
+  }
+  if (q.type === "reorder") {
+    const correctArr = (Array.isArray(q.correct) ? q.correct : [String(q.correct)]).map(norm);
+    let studentArr: string[] = [];
+    try { const p = JSON.parse(trimmed || "[]"); if (Array.isArray(p)) studentArr = p.map((x) => norm(String(x))); } catch { /* empty */ }
+    const ok = correctArr.length === studentArr.length && correctArr.every((c, i) => c === studentArr[i]);
+    return { isCorrect: ok, correctAnswer, feedback: ok ? stableEncouragement(q.id) : "Try a different order." };
   }
   if (q.type === "numeric") {
     const a = parseFloat(trimmed);
@@ -577,11 +614,52 @@ export function PracticeRoom({
               />
             )}
 
+            {q.audioUrl && (
+              <div className="mt-3">
+                <audio controls src={q.audioUrl} className="w-full max-w-md" preload="none" />
+              </div>
+            )}
+
             <div className="mt-6">
               {q.type === "passage" ? (
                 <div className="rounded-2xl border-2 border-dashed border-[var(--brand)]/40 bg-[color-mix(in_oklab,var(--brand)_5%,transparent)] p-4 text-sm text-muted-foreground">
                   Read the passage above, then continue.
                 </div>
+              ) : q.type === "number_line" ? (
+                <NumberLineAnswer
+                  q={q}
+                  value={responses[q.id] ?? ""}
+                  disabled={isChecked}
+                  onChange={(v) => setResponse(q.id, v)}
+                />
+              ) : q.type === "coord_plot" ? (
+                <CoordPlotAnswer
+                  q={q}
+                  value={responses[q.id] ?? ""}
+                  disabled={isChecked}
+                  onChange={(v) => setResponse(q.id, v)}
+                />
+              ) : q.type === "hotspot" ? (
+                <HotspotAnswer
+                  q={q}
+                  value={responses[q.id] ?? ""}
+                  disabled={isChecked}
+                  onChange={(v) => setResponse(q.id, v)}
+                />
+              ) : q.type === "categorize" ? (
+                <CategorizeAnswer
+                  q={q}
+                  value={responses[q.id] ?? ""}
+                  disabled={isChecked}
+                  onChange={(v) => setResponse(q.id, v)}
+                />
+              ) : q.type === "reorder" ? (
+                <ReorderAnswer
+                  q={q}
+                  value={responses[q.id] ?? ""}
+                  disabled={isChecked}
+                  onChange={(v) => setResponse(q.id, v)}
+                />
               ) : q.type === "highlight" ? (
                 <HighlightAnswer
                   q={q}
@@ -1493,4 +1571,316 @@ function deterministicShuffle<T>(arr: T[], seed: string): T[] {
     [out[i], out[j]] = [out[j], out[i]];
   }
   return out;
+}
+
+// ---------------------------------------------------------------------------
+// Wave 3 widgets
+// ---------------------------------------------------------------------------
+
+function NumberLineAnswer({
+  q, value, disabled, onChange,
+}: { q: QuestionWithMedia; value: string; disabled: boolean; onChange: (v: string) => void }) {
+  const min = parseFloat((q.choices?.[0] as string) ?? "0");
+  const max = parseFloat((q.choices?.[1] as string) ?? "10");
+  const cur = value === "" ? null : parseFloat(value);
+  const svgRef = useRef<SVGSVGElement | null>(null);
+  const W = 600, H = 60, PAD = 40;
+
+  function place(clientX: number) {
+    if (!svgRef.current || disabled) return;
+    const rect = svgRef.current.getBoundingClientRect();
+    const rel = (clientX - rect.left) / rect.width;
+    const raw = min + rel * (max - min);
+    const step = (max - min) >= 20 ? 1 : (max - min) >= 5 ? 0.5 : 0.1;
+    const snapped = Math.round(raw / step) * step;
+    const clamped = Math.max(min, Math.min(max, snapped));
+    onChange(String(Number(clamped.toFixed(2))));
+  }
+
+  const ticks: number[] = [];
+  const step = (max - min) / 10;
+  for (let i = 0; i <= 10; i++) ticks.push(min + i * step);
+  const xFromVal = (v: number) => PAD + ((v - min) / (max - min)) * (W - PAD * 2);
+
+  return (
+    <div>
+      <div className="mb-2 flex items-center justify-between text-xs text-muted-foreground">
+        <span>Tap the number line to place a point.</span>
+        {cur != null && !Number.isNaN(cur) && <span className="font-mono font-semibold text-foreground">= {cur}</span>}
+      </div>
+      <svg
+        ref={svgRef}
+        viewBox={`0 0 ${W} ${H}`}
+        className="w-full h-16 rounded-2xl border-2 border-[var(--brand)]/40 bg-[color-mix(in_oklab,var(--brand)_5%,transparent)] touch-none cursor-crosshair"
+        onClick={(e) => place(e.clientX)}
+        onTouchMove={(e) => { const t = e.touches[0]; if (t) place(t.clientX); }}
+        role="slider"
+        aria-valuemin={min} aria-valuemax={max} aria-valuenow={cur ?? min}
+        aria-label={`Number line from ${min} to ${max}`}
+      >
+        <line x1={PAD} y1={H/2} x2={W-PAD} y2={H/2} stroke="currentColor" strokeWidth="2" opacity="0.6" />
+        {ticks.map((t, i) => (
+          <g key={i}>
+            <line x1={xFromVal(t)} y1={H/2 - 6} x2={xFromVal(t)} y2={H/2 + 6} stroke="currentColor" opacity="0.5" />
+            <text x={xFromVal(t)} y={H/2 + 22} textAnchor="middle" fontSize="10" fill="currentColor" opacity="0.7">
+              {Number(t.toFixed(2))}
+            </text>
+          </g>
+        ))}
+        {cur != null && !Number.isNaN(cur) && (
+          <circle cx={xFromVal(cur)} cy={H/2} r="10" fill="var(--brand)" stroke="white" strokeWidth="3" />
+        )}
+      </svg>
+    </div>
+  );
+}
+
+function CoordPlotAnswer({
+  q, value, disabled, onChange,
+}: { q: QuestionWithMedia; value: string; disabled: boolean; onChange: (v: string) => void }) {
+  const xMin = parseFloat((q.choices?.[0] as string) ?? "-5");
+  const xMax = parseFloat((q.choices?.[1] as string) ?? "5");
+  const yMin = parseFloat((q.choices?.[2] as string) ?? "-5");
+  const yMax = parseFloat((q.choices?.[3] as string) ?? "5");
+  const [sx, sy] = value.split(",").map((s) => parseFloat(s.trim()));
+  const svgRef = useRef<SVGSVGElement | null>(null);
+  const S = 320;
+
+  function place(clientX: number, clientY: number) {
+    if (!svgRef.current || disabled) return;
+    const rect = svgRef.current.getBoundingClientRect();
+    const relX = (clientX - rect.left) / rect.width;
+    const relY = 1 - (clientY - rect.top) / rect.height;
+    const rawX = xMin + relX * (xMax - xMin);
+    const rawY = yMin + relY * (yMax - yMin);
+    const px = Math.round(rawX);
+    const py = Math.round(rawY);
+    const cx = Math.max(xMin, Math.min(xMax, px));
+    const cy = Math.max(yMin, Math.min(yMax, py));
+    onChange(`${cx},${cy}`);
+  }
+
+  const toPx = (x: number, y: number) => ({
+    x: ((x - xMin) / (xMax - xMin)) * S,
+    y: S - ((y - yMin) / (yMax - yMin)) * S,
+  });
+  const cursor = Number.isFinite(sx) && Number.isFinite(sy) ? toPx(sx, sy) : null;
+
+  const gridLines: number[] = [];
+  for (let i = xMin; i <= xMax; i++) gridLines.push(i);
+
+  return (
+    <div>
+      <div className="mb-2 flex items-center justify-between text-xs text-muted-foreground">
+        <span>Tap on the grid to plot a point.</span>
+        {cursor && <span className="font-mono font-semibold text-foreground">({sx}, {sy})</span>}
+      </div>
+      <div className="max-w-md">
+        <svg
+          ref={svgRef}
+          viewBox={`0 0 ${S} ${S}`}
+          className="w-full aspect-square rounded-2xl border-2 border-[var(--brand)]/40 bg-[color-mix(in_oklab,var(--brand)_3%,transparent)] touch-none cursor-crosshair"
+          onClick={(e) => place(e.clientX, e.clientY)}
+          role="application"
+          aria-label={`Coordinate grid from x ${xMin} to ${xMax}, y ${yMin} to ${yMax}`}
+        >
+          {/* Grid */}
+          {gridLines.map((i) => {
+            const px = toPx(i, 0).x;
+            const py = toPx(0, i).y;
+            const strong = i === 0;
+            return (
+              <g key={i}>
+                <line x1={px} y1={0} x2={px} y2={S} stroke="currentColor" opacity={strong ? 0.6 : 0.15} strokeWidth={strong ? 1.5 : 1} />
+                <line x1={0} y1={py} x2={S} y2={py} stroke="currentColor" opacity={strong ? 0.6 : 0.15} strokeWidth={strong ? 1.5 : 1} />
+              </g>
+            );
+          })}
+          {/* Axis labels */}
+          {gridLines.filter((i) => i !== 0).map((i) => (
+            <g key={`l${i}`}>
+              <text x={toPx(i, 0).x} y={toPx(0, 0).y + 12} textAnchor="middle" fontSize="9" fill="currentColor" opacity="0.6">{i}</text>
+              <text x={toPx(0, 0).x - 10} y={toPx(0, i).y + 3} textAnchor="middle" fontSize="9" fill="currentColor" opacity="0.6">{i}</text>
+            </g>
+          ))}
+          {/* Plotted point */}
+          {cursor && (
+            <circle cx={cursor.x} cy={cursor.y} r="8" fill="var(--brand)" stroke="white" strokeWidth="3" />
+          )}
+        </svg>
+      </div>
+    </div>
+  );
+}
+
+function HotspotAnswer({
+  q, value, disabled, onChange,
+}: { q: QuestionWithMedia; value: string; disabled: boolean; onChange: (v: string) => void }) {
+  const [sx, sy] = value.split(",").map((s) => parseFloat(s.trim()));
+  const imgRef = useRef<HTMLDivElement | null>(null);
+
+  function click(e: React.MouseEvent<HTMLDivElement>) {
+    if (disabled) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const rx = (e.clientX - rect.left) / rect.width;
+    const ry = (e.clientY - rect.top) / rect.height;
+    onChange(`${rx.toFixed(4)},${ry.toFixed(4)}`);
+  }
+
+  if (!q.imageUrl) {
+    return <p className="text-sm text-muted-foreground italic">This question needs an image. Ask your teacher.</p>;
+  }
+  return (
+    <div>
+      <p className="mb-2 text-xs text-muted-foreground">Tap the correct spot on the image.</p>
+      <div
+        ref={imgRef}
+        onClick={click}
+        role="button"
+        tabIndex={0}
+        aria-label="Click the correct spot on the image"
+        className={`relative inline-block max-w-full rounded-2xl overflow-hidden border-2 border-[var(--brand)]/40 ${disabled ? "cursor-default" : "cursor-crosshair"}`}
+      >
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={q.imageUrl} alt="" className="max-h-96 max-w-full object-contain" />
+        {Number.isFinite(sx) && Number.isFinite(sy) && (
+          <span
+            className="absolute h-6 w-6 -translate-x-1/2 -translate-y-1/2 rounded-full bg-[var(--brand)] ring-4 ring-white shadow-lg pointer-events-none"
+            style={{ left: `${sx * 100}%`, top: `${sy * 100}%` }}
+            aria-hidden
+          />
+        )}
+      </div>
+    </div>
+  );
+}
+
+function CategorizeAnswer({
+  q, value, disabled, onChange,
+}: { q: QuestionWithMedia; value: string; disabled: boolean; onChange: (v: string) => void }) {
+  const items = (q.choices ?? []).map(String);
+  const correctBuckets = (Array.isArray(q.correct) ? q.correct : [String(q.correct)]).map(String);
+  const uniqueBuckets = [...new Set(correctBuckets.filter((b) => b.trim()))];
+
+  let picks: string[] = [];
+  try { const p = JSON.parse(value || "[]"); if (Array.isArray(p)) picks = p.map(String); } catch { /* empty */ }
+  while (picks.length < items.length) picks.push("");
+
+  function assign(itemIdx: number, bucket: string) {
+    if (disabled) return;
+    const next = [...picks];
+    next[itemIdx] = bucket;
+    onChange(JSON.stringify(next));
+  }
+
+  return (
+    <div>
+      <p className="mb-3 text-xs text-muted-foreground">Tap each word, then tap the bucket it belongs in.</p>
+      <div className="space-y-2">
+        {items.map((item, i) => (
+          <div key={i} className="flex items-center gap-2 flex-wrap">
+            <div className="min-w-[7rem] rounded-xl border-2 border-border bg-muted/30 px-3 py-1.5 font-medium">
+              <RichText html={item} inline as="span" />
+            </div>
+            <span className="text-muted-foreground">→</span>
+            <div className="flex flex-wrap gap-1">
+              {uniqueBuckets.map((b) => {
+                const picked = picks[i] === b;
+                return (
+                  <button
+                    key={b}
+                    type="button"
+                    disabled={disabled}
+                    onClick={() => assign(i, b)}
+                    className={`rounded-full border-2 px-3 py-1 text-xs font-semibold transition-all ${
+                      picked
+                        ? "border-[var(--brand)] bg-[var(--brand)] text-primary-foreground"
+                        : "border-border bg-background hover:border-[var(--brand)]"
+                    }`}
+                  >
+                    {b}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ReorderAnswer({
+  q, value, disabled, onChange,
+}: { q: QuestionWithMedia; value: string; disabled: boolean; onChange: (v: string) => void }) {
+  const shuffled = deterministicShuffle((q.choices ?? []).map(String), q.id);
+  let picks: string[] = [];
+  try { const p = JSON.parse(value || "[]"); if (Array.isArray(p)) picks = p.map(String); } catch { /* empty */ }
+
+  function toggle(word: string) {
+    if (disabled) return;
+    if (picks.includes(word)) {
+      onChange(JSON.stringify(picks.filter((p) => p !== word)));
+    } else {
+      onChange(JSON.stringify([...picks, word]));
+    }
+  }
+  function clear() {
+    if (disabled) return;
+    onChange(JSON.stringify([]));
+  }
+
+  return (
+    <div>
+      <p className="mb-2 text-xs text-muted-foreground">Tap the words in the correct order.</p>
+      <div className="min-h-[3rem] rounded-2xl border-2 border-dashed border-[var(--brand)]/40 bg-[color-mix(in_oklab,var(--brand)_5%,transparent)] p-3 mb-3 flex flex-wrap gap-2 items-center">
+        {picks.length === 0 ? (
+          <span className="text-sm text-muted-foreground italic">Your sentence appears here.</span>
+        ) : (
+          picks.map((w, i) => (
+            <button
+              key={i}
+              type="button"
+              onClick={() => toggle(w)}
+              disabled={disabled}
+              className="inline-flex items-center gap-1 rounded-full bg-[var(--brand)] text-primary-foreground px-3 py-1 text-sm font-semibold"
+              aria-label={`Remove ${w}`}
+            >
+              <span className="mr-0.5 font-mono text-xs opacity-70">{i + 1}</span>
+              {w}
+            </button>
+          ))
+        )}
+      </div>
+      <div className="flex flex-wrap gap-2 items-center">
+        {shuffled.map((w, i) => {
+          const used = picks.includes(w);
+          return (
+            <button
+              key={i}
+              type="button"
+              disabled={disabled || used}
+              onClick={() => toggle(w)}
+              className={`rounded-full border-2 px-3 py-1.5 text-sm font-semibold transition-all ${
+                used
+                  ? "border-border/40 bg-muted/20 text-muted-foreground line-through"
+                  : "border-border bg-background hover:border-[var(--brand)] hover:bg-[color-mix(in_oklab,var(--brand)_10%,transparent)]"
+              }`}
+            >
+              {w}
+            </button>
+          );
+        })}
+        {picks.length > 0 && !disabled && (
+          <button
+            type="button"
+            onClick={clear}
+            className="ml-2 text-xs text-muted-foreground hover:text-foreground"
+          >
+            Clear
+          </button>
+        )}
+      </div>
+    </div>
+  );
 }
