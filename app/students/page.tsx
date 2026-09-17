@@ -1,11 +1,20 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { AppBrand, AppHeaderControls } from "@/components/ui/app-header";
 import { Mascot } from "@/components/ui/mascot";
 import { Sparkles, Volume2, Flame, Camera, GraduationCap } from "lucide-react";
+import { getCurrentStudent } from "@/lib/auth/student-session";
 
-export default function StudentsLanding() {
+export const dynamic = "force-dynamic";
+
+export default async function StudentsLanding() {
+  // If a student cookie is still valid, skip the marketing page entirely
+  // and drop them straight into their home — otherwise the flow feels
+  // like being re-logged-out every visit.
+  const student = await getCurrentStudent();
+  if (student) redirect("/student/home");
   return (
     <main className="min-h-screen">
       <a href="#hero" className="sr-only focus:not-sr-only focus:absolute focus:top-3 focus:left-3 focus:z-50 focus:rounded-md focus:bg-primary focus:px-3 focus:py-1.5 focus:text-primary-foreground">

@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import {
@@ -6,8 +7,15 @@ import {
   ShieldCheck, GraduationCap,
 } from "lucide-react";
 import { AppBrand, AppHeaderControls } from "@/components/ui/app-header";
+import { getCurrentTeacher } from "@/lib/auth/session";
 
-export default function TeachersLanding() {
+export const dynamic = "force-dynamic";
+
+export default async function TeachersLanding() {
+  // Skip the marketing gate when Supabase already has a valid teacher
+  // session — otherwise the flow feels like being re-logged-out.
+  const teacher = await getCurrentTeacher();
+  if (teacher) redirect("/dashboard");
   return (
     <main className="min-h-screen">
       <a href="#hero" className="sr-only focus:not-sr-only focus:absolute focus:top-3 focus:left-3 focus:z-50 focus:rounded-md focus:bg-primary focus:px-3 focus:py-1.5 focus:text-primary-foreground">
