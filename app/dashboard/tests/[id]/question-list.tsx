@@ -1,17 +1,17 @@
 "use client";
 
-import { useState, useTransition, useRef, useEffect } from "react";
-import { AnimatePresence, Reorder } from "framer-motion";
+import { useState, useTransition, useRef } from "react";
 import { Card } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import {
-  Trash2, Check, X as XIcon, Pencil, GripVertical, ImagePlus, Loader2,
+  Trash2, Check, X as XIcon, Pencil, ImagePlus, Loader2,
   Plus, ChevronDown, Calculator, ListChecks, ToggleLeft, TextCursorInput,
   MessageSquare, Type as TypeIcon, Highlighter, ArrowLeftRight, Package,
   BookOpen, GraduationCap, Minus, Target, Layers, MoveHorizontal, Mic, Bookmark,
+  ChevronUp, ChevronDown as ChevronDownIcon,
 } from "lucide-react";
 import {
   deleteQuestion, updateQuestion, reorderQuestions, addQuestion,
@@ -63,21 +63,20 @@ export function QuestionList({
   const [items, setItems] = useState(questions);
   const [pending, startTransition] = useTransition();
   const [openAdd, setOpenAdd] = useState(false);
-  // Defer drag-reorder mount so the page is interactive first. Framer Motion
-  // Reorder.Group runs expensive layout calc on every child on mount, which
-  // was the main source of the "frozen when opening a test" freeze on mobile.
-  const [reorderReady, setReorderReady] = useState(false);
-  useEffect(() => {
-    const t = setTimeout(() => setReorderReady(true), 0);
-    return () => clearTimeout(t);
-  }, []);
 
-  function onReorder(next: QuestionWithMedia[]) {
+  function persistOrder(next: QuestionWithMedia[]) {
     setItems(next);
     startTransition(async () => {
       const res = await reorderQuestions(testId, next.map((q) => q.id));
       if (!res.ok) toast.error(res.error);
     });
+  }
+  function move(from: number, to: number) {
+    if (to < 0 || to >= items.length) return;
+    const next = [...items];
+    const [row] = next.splice(from, 1);
+    next.splice(to, 0, row);
+    persistOrder(next);
   }
 
   function onAdd(type: QuestionType) {
@@ -91,51 +90,24 @@ export function QuestionList({
     });
   }
 
-  const rows = items.map((q, i) => (
-    <QuestionRow
-      key={q.id}
-      q={q}
-      index={i}
-      testId={testId}
-      onDeleted={() => setItems((prev) => prev.filter((p) => p.id !== q.id))}
-      onImageChange={(url, path) => setItems((prev) => prev.map((p) => p.id === q.id ? { ...p, imageUrl: url, image_path: path } : p))}
-    />
-  ));
-
   return (
     <div>
-      {reorderReady ? (
-        <Reorder.Group
-          axis="y"
-          values={items}
-          onReorder={onReorder}
-          className="space-y-3"
-        >
-          <AnimatePresence>
-            {items.map((q, i) => (
-              <Reorder.Item
-                key={q.id}
-                value={q}
-                className="cursor-default"
-                style={{ contentVisibility: "auto" as never }}
-                layout
-              >
-                <QuestionRow
-                  q={q}
-                  index={i}
-                  testId={testId}
-                  onDeleted={() => setItems((prev) => prev.filter((p) => p.id !== q.id))}
-                  onImageChange={(url, path) => setItems((prev) => prev.map((p) => p.id === q.id ? { ...p, imageUrl: url, image_path: path } : p))}
-                />
-              </Reorder.Item>
-            ))}
-          </AnimatePresence>
-        </Reorder.Group>
-      ) : (
-        <div className="space-y-3">
-          {rows}
-        </div>
-      )}
+      <ul className="space-y-3" aria-label="Questions">
+        {items.map((q, i) => (
+          <li key={q.id}>
+            <QuestionRow
+              q={q}
+              index={i}
+              total={items.length}
+              testId={testId}
+              onDeleted={() => setItems((prev) => prev.filter((p) => p.id !== q.id))}
+              onImageChange={(url, path) => setItems((prev) => prev.map((p) => p.id === q.id ? { ...p, imageUrl: url, image_path: path } : p))}
+              onMoveUp={() => move(i, i - 1)}
+              onMoveDown={() => move(i, i + 1)}
+            />
+          </li>
+        ))}
+      </ul>
 
       <div className="mt-6">
         {openAdd ? (
@@ -289,13 +261,16 @@ function BankPicker({ testId }: { testId: string }) {
 }
 
 function QuestionRow({
-  q, index, testId, onDeleted, onImageChange,
+  q, index, total, testId, onDeleted, onImageChange, onMoveUp, onMoveDown,
 }: {
   q: QuestionWithMedia;
   index: number;
+  total: number;
   testId: string;
   onDeleted: () => void;
   onImageChange: (url: string | null, path: string | null) => void;
+  onMoveUp: () => void;
+  onMoveDown: () => void;
 }) {
   const [editing, setEditing] = useState(false);
   const [pending, startTransition] = useTransition();
@@ -397,12 +372,27 @@ function QuestionRow({
   return (
     <Card className="lwm-card p-5" data-editing={editing || undefined}>
       <div className="flex items-start gap-3">
-        <div
-          className="mt-1 flex h-8 w-8 shrink-0 cursor-grab items-center justify-center rounded-md text-muted-foreground hover:bg-muted active:cursor-grabbing"
-          aria-label="Drag to reorder"
-          title="Drag to reorder"
-        >
-          <GripVertical className="h-4 w-4" />
+        <div className="mt-1 flex flex-col shrink-0">
+          <button
+            type="button"
+            onClick={onMoveUp}
+            disabled={index === 0}
+            aria-label="Move question up"
+            title="Move up"
+            className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-muted-foreground"
+          >
+            <ChevronUp className="h-4 w-4" />
+          </button>
+          <button
+            type="button"
+            onClick={onMoveDown}
+            disabled={index === total - 1}
+            aria-label="Move question down"
+            title="Move down"
+            className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-muted-foreground"
+          >
+            <ChevronDownIcon className="h-4 w-4" />
+          </button>
         </div>
         <div className="min-w-0 flex-1">
           <div className="mb-2 flex flex-wrap items-center gap-1.5 text-xs">
