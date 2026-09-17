@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { signExplanationUrl } from "@/app/actions/upload-explanation";
-import { signQuestionImage, signQuestionAudio } from "@/app/actions/question-media";
+import { signQuestionMediaBatch } from "@/app/actions/question-media";
 
 export const dynamic = "force-dynamic";
 import type { DbAttempt, DbQuestion, DbTest } from "@/lib/db/types";
@@ -44,13 +44,17 @@ async function loadAttempt(attemptId: string) {
     }
   }
 
-  const questionsWithMedia = await Promise.all(
-    (questions as DbQuestion[]).map(async (q) => ({
-      ...q,
-      imageUrl: q.image_path ? await signQuestionImage(q.image_path) : null,
-      audioUrl: q.audio_path ? await signQuestionAudio(q.audio_path) : null,
-    }))
-  );
+  const qs = questions as DbQuestion[];
+  const paths = [
+    ...qs.map((q) => q.image_path).filter((p): p is string => !!p),
+    ...qs.map((q) => q.audio_path).filter((p): p is string => !!p),
+  ];
+  const signed = paths.length ? await signQuestionMediaBatch(paths) : {};
+  const questionsWithMedia = qs.map((q) => ({
+    ...q,
+    imageUrl: q.image_path ? signed[q.image_path] ?? null : null,
+    audioUrl: q.audio_path ? signed[q.audio_path] ?? null : null,
+  }));
 
   return {
     attempt: attempt as DbAttempt,

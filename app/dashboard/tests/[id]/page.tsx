@@ -12,19 +12,47 @@ import { Download, ArrowLeft, Clock, Eye } from "lucide-react";
 import { QuestionList } from "./question-list";
 import { ShareCard } from "./share-card";
 import { AssignCard } from "./assign-card";
-import { signQuestionImage, signQuestionAudio } from "@/app/actions/question-media";
+import { signQuestionMediaBatch } from "@/app/actions/question-media";
+
+// Vercel Hobby caps single-invocation duration; make it explicit and
+// short so a slow render surfaces a real timeout instead of silently
+// hitting the platform default.
+export const maxDuration = 10;
 
 async function loadTest(id: string) {
+  const startMs = Date.now();
+  const stamp = (label: string) => console.log(`[test-detail:${id.slice(0, 8)}] ${label} +${Date.now() - startMs}ms`);
+  stamp("start");
   const teacherId = await requireTeacherId();
+  stamp("auth");
   const admin = createAdminClient();
-  const [{ data: test }, { data: questions }, { data: classTest }, { data: classes }, { data: assignments }] = await Promise.all([
-    admin.from("tests").select("*").eq("id", id).maybeSingle(),
-    admin.from("questions").select("*").eq("test_id", id).order("position"),
-    admin.from("class_tests").select("class_id, classes(id, name, join_code)").eq("test_id", id).maybeSingle(),
+
+  // Owner-check the test alone first so we can bail before touching
+  // the questions table for tests this teacher doesn't own.
+  const { data: test } = await admin
+    .from("tests")
+    .select("*")
+    .eq("id", id)
+    .eq("teacher_id", teacherId)
+    .maybeSingle();
+  stamp("test-row");
+  if (!test) return null;
+
+  // The rest in parallel. Questions capped at 500 rows + count reported
+  // so runaway data (from a duplicated insert path) can't blow the
+  // Vercel function budget.
+  const [{ data: questions, count: qcount }, { data: classTest }, { data: classes }, { data: assignments }] = await Promise.all([
+    admin
+      .from("questions")
+      .select("*", { count: "exact" })
+      .eq("test_id", id)
+      .order("position")
+      .limit(500),
+    admin.from("class_tests").select("class_id, classes(id, name, join_code)").eq("test_id", id).limit(1),
     admin.from("classes").select("id, name").eq("teacher_id", teacherId),
     admin.from("assignments").select("student_id, due_at, priority").eq("test_id", id),
   ]);
-  if (!test) return null;
+  stamp(`questions rows=${questions?.length ?? 0} total=${qcount ?? "?"}`);
 
   const classIds = (classes ?? []).map((c) => c.id);
   const { data: rosterRaw } = classIds.length
@@ -34,6 +62,7 @@ async function loadTest(id: string) {
         .in("class_id", classIds)
         .order("display_name")
     : { data: [] };
+  stamp("roster");
   const classNameById = new Map((classes ?? []).map((c) => [c.id, c.name]));
   const students = (rosterRaw ?? []).map((s) => ({
     id: s.id,
@@ -42,21 +71,36 @@ async function loadTest(id: string) {
     class_name: classNameById.get(s.class_id) ?? "",
   }));
 
-  const questionsWithMedia = await Promise.all(
-    ((questions ?? []) as DbQuestion[]).map(async (q) => ({
-      ...q,
-      imageUrl: q.image_path ? await signQuestionImage(q.image_path) : null,
-      audioUrl: q.audio_path ? await signQuestionAudio(q.audio_path) : null,
-    }))
-  );
+  // ONE batched Storage call for every image + audio path on the test,
+  // with a 3s hard cap inside signQuestionMediaBatch. Replaces the
+  // per-question loop that was making N sequential HTTPS calls and
+  // burning through the function budget.
+  const qs = (questions ?? []) as DbQuestion[];
+  const paths = [
+    ...qs.map((q) => q.image_path).filter((p): p is string => !!p),
+    ...qs.map((q) => q.audio_path).filter((p): p is string => !!p),
+  ];
+  stamp(`paths=${paths.length}`);
+  const signed = paths.length ? await signQuestionMediaBatch(paths) : {};
+  stamp("signed");
+  const questionsWithMedia = qs.map((q) => ({
+    ...q,
+    imageUrl: q.image_path ? signed[q.image_path] ?? null : null,
+    audioUrl: q.audio_path ? signed[q.audio_path] ?? null : null,
+  }));
+
+  const firstJoin = (classTest ?? []).find((ct) => {
+    const c = ct.classes;
+    return c && !Array.isArray(c) && typeof (c as { join_code?: string }).join_code === "string";
+  });
+  const joinCode = firstJoin
+    ? (firstJoin.classes as unknown as { join_code: string }).join_code
+    : null;
 
   return {
     test: test as DbTest,
     questions: questionsWithMedia,
-    joinCode:
-      classTest?.classes && !Array.isArray(classTest.classes)
-        ? (classTest.classes as { join_code: string }).join_code
-        : null,
+    joinCode,
     students,
     assignments: (assignments ?? []) as { student_id: string; due_at: string | null; priority: number }[],
   };

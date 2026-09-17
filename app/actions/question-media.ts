@@ -185,3 +185,40 @@ export async function signQuestionAudio(path: string): Promise<string | null> {
   const { data } = await admin.storage.from(BUCKET).createSignedUrl(path, 60 * 60 * 24 * 7);
   return data?.signedUrl ?? null;
 }
+
+/**
+ * Batch-sign many question-media paths in ONE Storage round-trip.
+ * Returns a { path -> signedUrl } map. Missing / errored paths just
+ * don't appear in the map.
+ *
+ * Racing a 3s timeout so a slow / misconfigured Storage bucket can
+ * never lock the whole server render — the page then shows without
+ * previews, which is far better than the entire route timing out.
+ *
+ * Replaces the per-question loop that was making N sequential HTTPS
+ * calls to Supabase Storage and burning through Vercel's function
+ * budget on tests with several questions.
+ */
+export async function signQuestionMediaBatch(
+  paths: string[],
+  expiresInSec = 60 * 60 * 24 * 7
+): Promise<Record<string, string>> {
+  const clean = Array.from(new Set(paths.filter((p) => typeof p === "string" && p.length > 0)));
+  if (clean.length === 0) return {};
+  const admin = createAdminClient();
+  const timeout = new Promise<{ data: null }>((resolve) =>
+    setTimeout(() => resolve({ data: null }), 3000)
+  );
+  try {
+    const call = admin.storage.from(BUCKET).createSignedUrls(clean, expiresInSec);
+    const { data } = await Promise.race([call, timeout]);
+    const out: Record<string, string> = {};
+    for (const row of data ?? []) {
+      if (row?.signedUrl && row.path) out[row.path] = row.signedUrl;
+    }
+    return out;
+  } catch (e) {
+    console.error("signQuestionMediaBatch failed", e);
+    return {};
+  }
+}
