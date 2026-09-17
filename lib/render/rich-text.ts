@@ -43,13 +43,50 @@ function renderMath(src: string, displayMode: boolean): string {
  * Render one line of already-escaped-elsewhere-or-plain text.
  * Extracts $$…$$ blocks first, then $…$, then applies inline formatting.
  */
+/**
+ * Ambiguity guard: teachers write things like "sold for $8" — a bare `$`
+ * next to a digit or whitespace is treated as a literal dollar sign,
+ * NOT the start of a math span. Math still works with `$x^2$` or the
+ * unambiguous `$$…$$` form.
+ *
+ * Rules for treating `$` as inline-math opener:
+ *   - next character exists and is NOT whitespace and NOT a digit
+ *   - AND a closing `$` exists later on the line whose PRECEDING char
+ *     is NOT whitespace/digit either
+ *
+ * Anything else (currency, prices) renders as plain text.
+ */
+function isMathOpener(line: string, i: number): boolean {
+  const next = line[i + 1];
+  if (!next || /[\s\d]/.test(next)) return false;
+  // Look for a plausible closer
+  for (let j = i + 1; j < line.length; j++) {
+    if (line[j] === "$") {
+      const prev = line[j - 1];
+      if (prev && !/[\s\d]/.test(prev)) return true;
+      // Keep scanning past ambiguous closers
+    }
+  }
+  return false;
+}
+
+function findMathCloser(line: string, from: number): number {
+  for (let j = from; j < line.length; j++) {
+    if (line[j] === "$") {
+      const prev = line[j - 1];
+      if (prev && !/[\s\d]/.test(prev)) return j;
+    }
+  }
+  return -1;
+}
+
 function renderInline(line: string): string {
   // Split on math tokens so we don't mangle escaped $ inside code, etc.
   // A pragmatic split: keep it simple — no nesting, no escapes.
   const parts: string[] = [];
   let i = 0;
   while (i < line.length) {
-    // $$ display
+    // $$ display — unambiguous, always math
     if (line[i] === "$" && line[i + 1] === "$") {
       const end = line.indexOf("$$", i + 2);
       if (end !== -1) {
@@ -58,16 +95,21 @@ function renderInline(line: string): string {
         continue;
       }
     }
-    // $ inline
-    if (line[i] === "$") {
-      const end = line.indexOf("$", i + 1);
+    // $ inline — only when unambiguous (guarded so "$5" / "for $8" stay literal)
+    if (line[i] === "$" && isMathOpener(line, i)) {
+      const end = findMathCloser(line, i + 1);
       if (end !== -1) {
         parts.push(renderMath(line.slice(i + 1, end), false));
         i = end + 1;
         continue;
       }
     }
-    // else grab a run of non-$ chars
+    // else grab a run of non-$ chars (advance by 1 past a literal $)
+    if (line[i] === "$") {
+      parts.push(applyInlineMarkdown(esc("$")));
+      i += 1;
+      continue;
+    }
     const next = line.indexOf("$", i);
     const chunkEnd = next === -1 ? line.length : next;
     parts.push(applyInlineMarkdown(esc(line.slice(i, chunkEnd))));
