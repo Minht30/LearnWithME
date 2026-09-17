@@ -97,12 +97,17 @@ export async function addQuestion(
   return { ok: true, id: data.id };
 }
 
-export async function deleteTest(testId: string) {
+export async function deleteTest(testId: string): Promise<{ ok: true } | { ok: false; error: string }> {
+  const teacherId = await requireTeacherId();
   const admin = createAdminClient();
-  const { error } = await admin.from("tests").delete().eq("id", testId);
-  if (error) return { ok: false as const, error: error.message };
+  const { error } = await admin
+    .from("tests")
+    .delete()
+    .eq("id", testId)
+    .eq("teacher_id", teacherId);
+  if (error) return { ok: false, error: error.message };
   revalidatePath("/dashboard");
-  return { ok: true as const };
+  return { ok: true };
 }
 
 function randomCode(len = 6) {

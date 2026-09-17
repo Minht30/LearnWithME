@@ -12,6 +12,7 @@ import { Download, ArrowLeft, Clock, Eye } from "lucide-react";
 import { QuestionList } from "./question-list";
 import { ShareCard } from "./share-card";
 import { AssignCard } from "./assign-card";
+import { DeleteTestButton } from "./delete-test-button";
 import { signQuestionMediaBatch } from "@/app/actions/question-media";
 
 // Vercel Hobby caps single-invocation duration; make it explicit and
@@ -165,6 +166,7 @@ export default async function TestDetailPage({ params }: PageProps<"/dashboard/t
           >
             <Download className="mr-1 h-4 w-4" /> Teacher PDF
           </a>
+          <DeleteTestButton testId={test.id} title={test.title} />
         </div>
       </header>
 
